@@ -19,12 +19,14 @@ Features:
 
 **Screenshots:**
 
-<img width="1760" height="3824" alt="main" src="https://github.com/user-attachments/assets/755cf90a-4876-4329-a3a5-d0293ed693e6" />
+<img width="500" alt="main" src="https://github.com/user-attachments/assets/755cf90a-4876-4329-a3a5-d0293ed693e6" />
 Main player screen
 
-<img width="1760" height="3824" alt="speedsfx" src="https://github.com/user-attachments/assets/b0652bd7-d52f-4104-9042-b46b5eac99ea" />
+
+<img width="500" alt="speedsfx" src="https://github.com/user-attachments/assets/b0652bd7-d52f-4104-9042-b46b5eac99ea" />
 Audio effects settings
 
-<img width="1760" height="3824" alt="playlists" src="https://github.com/user-attachments/assets/f6a95545-8b45-40c9-b8db-309567c36fbc" />
+
+<img width="500" alt="playlists" src="https://github.com/user-attachments/assets/f6a95545-8b45-40c9-b8db-309567c36fbc" />
 View songs within a playlist
 
