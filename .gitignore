@@ -1,0 +1,25 @@
+# Gradle / Android Studio
+.gradle/
+.kotlin/
+.idea/
+*.iml
+/build
+app/build/
+/captures
+.externalNativeBuild
+.cxx
+
+# Machine-specific
+local.properties
+.DS_Store
+
+# Signing material and build outputs
+*.jks
+*.keystore
+keystore.properties
+*.apk
+*.aab
+
+# Working notes, not part of the app
+/UI screenshots/
+/main prompt.md

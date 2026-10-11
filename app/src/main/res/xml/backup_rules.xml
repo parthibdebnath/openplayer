@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and lower. See data_extraction_rules.xml for why only these two files. -->
+<full-backup-content>
+    <include domain="file" path="datastore/settings.preferences_pb" />
+    <include domain="file" path="datastore/effects.preferences_pb" />
+</full-backup-content>
