@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
+import kotlin.math.roundToInt
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.parthibdebnath.openplayer.data.settings.PitchEffectState
@@ -27,7 +28,7 @@ fun PitchTab(
             label = "Semitones",
             valueText = "${signed(state.semitones)} st",
             sliderValue = state.semitones.toFloat(),
-            onSliderValueChange = { v -> onUpdate { it.copy(semitones = v.toInt()) } },
+            onSliderValueChange = { v -> onUpdate { it.copy(semitones = v.roundToInt()) } },
             valueRange = -12f..12f,
             steps = 23,
             onIncrement = { onUpdate { it.copy(semitones = (it.semitones + 1).coerceAtMost(12)) } },
@@ -38,7 +39,7 @@ fun PitchTab(
             label = "Fine Tuning",
             valueText = "${signed(state.cents)} cents",
             sliderValue = state.cents.toFloat(),
-            onSliderValueChange = { v -> onUpdate { it.copy(cents = v.toInt()) } },
+            onSliderValueChange = { v -> onUpdate { it.copy(cents = v.roundToInt()) } },
             valueRange = -100f..100f,
             steps = 199,
             onIncrement = { onUpdate { it.copy(cents = (it.cents + 1).coerceAtMost(100)) } },

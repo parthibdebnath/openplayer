@@ -20,7 +20,11 @@ import io.github.parthibdebnath.openplayer.data.model.Song
 import io.github.parthibdebnath.openplayer.data.settings.EffectsState
 import io.github.parthibdebnath.openplayer.data.settings.PlaybackStateRepository
 import io.github.parthibdebnath.openplayer.data.settings.SavedPosition
+import io.github.parthibdebnath.openplayer.data.settings.SavedExternalSong
 import io.github.parthibdebnath.openplayer.data.settings.SavedQueue
+import io.github.parthibdebnath.openplayer.data.repository.EXTERNAL_PLAYLIST_ID
+import io.github.parthibdebnath.openplayer.data.repository.ExternalSongs
+import io.github.parthibdebnath.openplayer.data.repository.isExternal
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -28,6 +32,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -41,8 +46,8 @@ data class PlaybackUiState(
     val repeatMode: RepeatMode = RepeatMode.OFF,
     val shuffleOn: Boolean = false,
     val upcoming: List<Song> = emptyList(),
-    /** Raw engine state, surfaced on screen while playback problems are being diagnosed. */
-    val diagnostics: String = "",
+    /** Why the current song couldn't be played, worded for the listener; null when all is well. */
+    val error: String? = null,
 )
 
 /**
@@ -57,6 +62,9 @@ private class PlayerSlot(context: Context, audioAttributes: AudioAttributes) {
         // Focus is handled centrally by AudioFocusController instead of per-player - see there.
         .setAudioAttributes(audioAttributes, /* handleAudioFocus= */ false)
         .setHandleAudioBecomingNoisy(true)
+        // Keeps the CPU awake while - and only while - this player is playing. Without it some
+        // phones let the processor sleep with the screen off and background playback stalls.
+        .setWakeMode(C.WAKE_MODE_LOCAL)
         .build()
 
     /** The crossfade's own gain for this slot, kept separate from the global ducking gain. */
@@ -111,6 +119,10 @@ class PlaybackEngine private constructor(context: Context) {
             dropPreloadedNext()
             applyRepeatModeToPlayer()
         },
+        onDisarmStopAfterCurrentSong = {
+            applyRepeatModeToPlayer()
+            syncUpcomingWindow()
+        },
     )
 
     private val focusController = AudioFocusController(
@@ -145,9 +157,7 @@ class PlaybackEngine private constructor(context: Context) {
 
     private var currentShuffleSeed: String = ""
     private var lastError: String? = null
-    private var lastErrorCause: String? = null
     private var dspBypassedAfterFailure = false
-    private var lastPlayWhenReadyReason: Int = -1
     private var retriesForCurrentItem = 0
     private var tickCount = 0L
     private var duckGain: Float = 1f
@@ -192,6 +202,13 @@ class PlaybackEngine private constructor(context: Context) {
      */
     private var restoreAttempted = false
 
+    /**
+     * Whether either player is playing. The tick and save loops wait on this rather than running
+     * all the time: with nothing playing there's nothing to update, and waking up twenty times a
+     * second regardless kept the app busy in the background for as long as it stayed in memory.
+     */
+    private val anyPlaying = MutableStateFlow(false)
+
     init {
         outputDeviceManager.start()
         slots.forEachIndexed { index, slot -> slot.player.addListener(listenerFor(index)) }
@@ -200,14 +217,21 @@ class PlaybackEngine private constructor(context: Context) {
         // clock, so without this tick the time readout and the seek bar never moved.
         engineScope.launch {
             while (true) {
+                if (!anyPlaying.value) {
+                    syncState()
+                    anyPlaying.first { it }
+                }
                 advanceCrossfade()
                 if (tickCount++ % SYNC_EVERY_N_TICKS == 0L) syncState()
                 delay(TICK_MS)
             }
         }
 
+        // The position only moves while playing, and everything that changes while paused - a
+        // pause itself, a seek, leaving the app - saves straight away.
         engineScope.launch {
             while (true) {
+                anyPlaying.first { it }
                 delay(PERSIST_INTERVAL_MS)
                 persistState()
             }
@@ -228,6 +252,9 @@ class PlaybackEngine private constructor(context: Context) {
                     // read as playing, with no way to resume without re-preparing.
                     pause()
                     runCatching { player.seekTo(0) }
+                    // Back to normal for whenever play is pressed next.
+                    applyRepeatModeToPlayer()
+                    syncUpcomingWindow()
                 } else {
                     advanceAndPlayNext()
                 }
@@ -248,10 +275,14 @@ class PlaybackEngine private constructor(context: Context) {
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            anyPlaying.value = slots.any { it.player.isPlaying }
             if (!isActiveSlot) return
             // Something is genuinely playing, so whatever run of unplayable files came before it
-            // is over.
-            if (isPlaying) consecutiveUnplayable = 0
+            // is over, and so is any error.
+            if (isPlaying) {
+                consecutiveUnplayable = 0
+                lastError = null
+            }
             syncState()
         }
 
@@ -264,8 +295,7 @@ class PlaybackEngine private constructor(context: Context) {
                 cancelCrossfade()
                 return
             }
-            lastError = error.errorCodeName
-            lastErrorCause = error.cause?.let { "${it.javaClass.simpleName}:${it.message.orEmpty().take(60)}" }
+            lastError = describe(error)
 
             // ERROR_CODE_FAILED_RUNTIME_CHECK means something threw inside the playback pipeline.
             // The only non-stock code in that pipeline is our own DSP, so drop it out of the path
@@ -300,7 +330,6 @@ class PlaybackEngine private constructor(context: Context) {
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             if (!isActiveSlot) return
-            lastPlayWhenReadyReason = reason
             syncState()
         }
 
@@ -575,6 +604,9 @@ class PlaybackEngine private constructor(context: Context) {
             positionMs.coerceAtLeast(0)
         }
         player.seekTo(target)
+        // The player reports the new position straight away; pushed out here because nothing
+        // else refreshes the UI while paused.
+        syncState()
         persistNow()
     }
 
@@ -608,7 +640,8 @@ class PlaybackEngine private constructor(context: Context) {
             }
             if (ids.isEmpty()) return
 
-            val byId = lookup(ids.toList()).associateBy { it.id }
+            val external = saved.externalSongs.associate { it.id to it.toSong() }
+            val byId = lookup(ids.filter { it !in external }).associateBy { it.id } + external
             // The user may have started something themselves while the lookup was running; what
             // they picked wins over what was saved.
             if (queueManager.current != null) return
@@ -682,6 +715,7 @@ class PlaybackEngine private constructor(context: Context) {
                     historySongIds = queueManager.historySnapshot().map { it.id },
                     repeatMode = queueManager.repeatMode.name,
                     shuffled = queueManager.playOrder == PlayOrder.SHUFFLED,
+                    externalSongs = savableExternalSongs(),
                 )
                 runCatching { stateRepository.saveQueue(snapshot) }
                     .onSuccess { lastSavedQueueVersion = version }
@@ -697,6 +731,37 @@ class PlaybackEngine private constructor(context: Context) {
             }
         }
     }
+
+    /**
+     * Songs opened from another app that can still be read after a restart. The rest are left out,
+     * so a restored queue doesn't lead with a file the app is no longer allowed to open.
+     */
+    private fun savableExternalSongs(): List<SavedExternalSong> {
+        val songs = buildList {
+            queueManager.current?.let(::add)
+            addAll(queueManager.poolSnapshot())
+            addAll(queueManager.explicitQueue)
+            addAll(queueManager.upcoming)
+            addAll(queueManager.historySnapshot())
+        }.filter { it.isExternal }.distinctBy { it.id }
+        if (songs.isEmpty()) return emptyList()
+        return songs
+            .filter { runCatching { ExternalSongs.survivesRestart(appContext, Uri.parse(it.documentUri)) }.getOrDefault(false) }
+            .map { SavedExternalSong(it.id, it.documentUri, it.fileName, it.displayName, it.artist, it.durationMs) }
+    }
+
+    private fun SavedExternalSong.toSong() = Song(
+        id = id,
+        playlistId = EXTERNAL_PLAYLIST_ID,
+        documentUri = uri,
+        fileName = fileName,
+        displayName = displayName,
+        artist = artist,
+        durationMs = durationMs,
+        sizeBytes = 0L,
+        lastModified = 0L,
+        sortIndex = 0L,
+    )
 
     // --- Queue maintenance --------------------------------------------------------------------
 
@@ -737,7 +802,7 @@ class PlaybackEngine private constructor(context: Context) {
         // Restart current song if we're more than a couple seconds in, matching common player UX;
         // otherwise go back in history.
         if (player.currentPosition > 3000L || !queueManager.hasHistory()) {
-            player.seekTo(0)
+            seekTo(0L)
             return
         }
         val previous = queueManager.goToPrevious()
@@ -838,7 +903,6 @@ class PlaybackEngine private constructor(context: Context) {
             }
             retriesForCurrentItem = 0
             lastError = null
-            lastErrorCause = null
             rebuildingWindow = true
             if (autoPlay) focusController.requestFocus()
             player.setMediaItems(windowFor(song))
@@ -929,14 +993,18 @@ class PlaybackEngine private constructor(context: Context) {
         }
     }
 
+    private fun describe(error: PlaybackException): String = when (error.errorCode) {
+        PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND -> "the file is missing"
+        PlaybackException.ERROR_CODE_IO_NO_PERMISSION -> "openplayer isn't allowed to read the file"
+        PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
+        PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+        PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
+        -> "this audio format isn't supported"
+        PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED -> "the file is damaged"
+        else -> "something went wrong"
+    }
+
     fun syncState() {
-        val stateLabel = when (player.playbackState) {
-            Player.STATE_IDLE -> "IDLE"
-            Player.STATE_BUFFERING -> "BUFFERING"
-            Player.STATE_READY -> "READY"
-            Player.STATE_ENDED -> "ENDED"
-            else -> "?"
-        }
         _uiState.value = PlaybackUiState(
             currentSong = queueManager.current,
             playlistLabel = queueManager.playlistLabel,
@@ -946,15 +1014,7 @@ class PlaybackEngine private constructor(context: Context) {
             repeatMode = queueManager.repeatMode,
             shuffleOn = queueManager.playOrder == PlayOrder.SHUFFLED,
             upcoming = queueManager.visibleUpcoming(),
-            diagnostics = buildString {
-                append(stateLabel)
-                append(" pwr=").append(player.playWhenReady)
-                append(" sup=").append(player.playbackSuppressionReason)
-                append(" pwrWhy=").append(lastPlayWhenReadyReason)
-                append(" vol=").append(player.volume)
-                lastError?.let { append(" err=").append(it) }
-                lastErrorCause?.let { append(" cause=").append(it) }
-            },
+            error = lastError,
         )
     }
 

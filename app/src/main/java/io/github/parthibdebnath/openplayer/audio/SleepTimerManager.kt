@@ -29,6 +29,11 @@ class SleepTimerManager(
      * or the end of this song would never be noticed.
      */
     private val onArmStopAfterCurrentSong: () -> Unit = {},
+    /**
+     * Fired when a pending stop-after-this-song is called off, so the engine can go back to
+     * preloading the next song and looping under repeat-one, both of which arming switched off.
+     */
+    private val onDisarmStopAfterCurrentSong: () -> Unit = {},
 ) {
     private val _state = MutableStateFlow(SleepTimerState())
     val state: StateFlow<SleepTimerState> = _state.asStateFlow()
@@ -69,6 +74,12 @@ class SleepTimerManager(
     }
 
     fun cancel() {
+        val wasArmed = stopAfterCurrentSongPending
+        reset()
+        if (wasArmed) onDisarmStopAfterCurrentSong()
+    }
+
+    private fun reset() {
         tickJob?.cancel()
         tickJob = null
         stopAfterCurrentSongPending = false
@@ -81,8 +92,10 @@ class SleepTimerManager(
     /** PlaybackEngine calls this on natural track completion; returns true if it should stop instead of advancing. */
     fun consumeStopAfterCurrentSong(): Boolean {
         if (stopAfterCurrentSongPending) {
-            stopAfterCurrentSongPending = false
-            cancel()
+            // No disarm callback here: the engine is about to stop, and restores normal playback
+            // itself once it has - preloading the next song into a player that's still set to play
+            // would start it.
+            reset()
             return true
         }
         return false

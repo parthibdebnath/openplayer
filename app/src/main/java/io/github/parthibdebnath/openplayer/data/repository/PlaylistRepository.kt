@@ -153,8 +153,9 @@ class PlaylistRepository(private val context: Context) {
         val entity = playlistDao.getById(song.playlistId) ?: return@withContext false
         val root = DocumentFile.fromTreeUri(context, Uri.parse(entity.folderUri)) ?: return@withContext false
         val removedFolder = SafFileOperations.getOrCreateRemovedSongsFolder(context, root) ?: return@withContext false
-        val sourceDoc = root.findFile(song.fileName)?.takeIf { it.uri.toString() == song.documentUri }
-            ?: DocumentFile.fromSingleUri(context, Uri.parse(song.documentUri))
+        // The stored uri already identifies the file; searching the folder for it by name cost a
+        // storage round trip per song in the folder.
+        val sourceDoc = DocumentFile.fromSingleUri(context, Uri.parse(song.documentUri))
             ?: return@withContext false
         val moved = SafFileOperations.moveInto(context, sourceDoc, root, removedFolder)
         if (moved) scanner.rescan(song.playlistId, entity.folderUri)

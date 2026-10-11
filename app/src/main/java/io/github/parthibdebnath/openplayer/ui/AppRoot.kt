@@ -6,15 +6,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -26,7 +29,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.parthibdebnath.openplayer.ui.components.GestureOverlay
 import io.github.parthibdebnath.openplayer.ui.components.GestureType
+import io.github.parthibdebnath.openplayer.ui.components.GlassNotification
 import io.github.parthibdebnath.openplayer.ui.components.GlassPillSwitcher
+import io.github.parthibdebnath.openplayer.ui.components.GlassScreenRoot
 import io.github.parthibdebnath.openplayer.ui.components.tabSwipe
 import io.github.parthibdebnath.openplayer.ui.screens.file.FileScreen
 import io.github.parthibdebnath.openplayer.ui.screens.play.PlayScreen
@@ -81,10 +86,21 @@ fun AppRoot(
     var gestureType by remember { mutableStateOf<GestureType?>(null) }
     var gesturePercent by remember { mutableIntStateOf(0) }
 
+    // A file opened from another app plays once the app is unlocked - which it is, if this is
+    // showing - and brings the player to the front.
+    val pendingOpen by viewModel.pendingOpen.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingOpen) {
+        if (pendingOpen != null) {
+            viewModel.playPendingOpen()
+            selectedTab = 1
+        }
+    }
+    val openFailed by viewModel.openFailed.collectAsStateWithLifecycle()
+
     val background = parseBackgroundColor(settings.backgroundColorHex)
     val appColors = AppColors(
         background = background,
-        onBackground = contentColorFor(background, inverted = settings.invertContrast),
+        onBackground = contentColorFor(background),
     )
 
     CompositionLocalProvider(
@@ -95,7 +111,7 @@ fun AppRoot(
     ) {
         Box(modifier = modifier.fillMaxSize().background(appColors.background)) {
             Column(modifier = Modifier.fillMaxSize()) {
-                io.github.parthibdebnath.openplayer.ui.components.GlassScreenRoot(
+                GlassScreenRoot(
                     modifier = Modifier
                         .weight(1f)
                         .tabSwipe { direction ->
@@ -135,6 +151,19 @@ fun AppRoot(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 18.dp, vertical = 8.dp),
+                )
+            }
+
+            if (openFailed) {
+                GlassNotification(
+                    title = "Couldn't open that file",
+                    message = "It can't be read, or it isn't a supported audio file.",
+                    onConfirm = viewModel::dismissOpenFailed,
+                    onDismiss = viewModel::dismissOpenFailed,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .statusBarsPadding()
+                        .padding(horizontal = 18.dp, vertical = 12.dp),
                 )
             }
 

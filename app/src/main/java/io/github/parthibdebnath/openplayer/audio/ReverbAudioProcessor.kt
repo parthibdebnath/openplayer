@@ -115,6 +115,16 @@ class ReverbAudioProcessor : BaseAudioProcessor() {
         val diffusionGain = (diffusionPercent.coerceIn(0, 100) / 100f) * 0.7f
         val mixGain = mixPercent.coerceIn(0, 100) / 100f
 
+        // Scale the comb input by (1 - feedback). A feedback comb settles at
+        // input / (1 - feedback), so at the long decay times this effect allows - feedback
+        // around 0.97 - feeding it full-scale audio built up to roughly 30x and slammed into
+        // the output clamp, which is what made the reverb sound crunchy and tinny. Scaling the
+        // input by the same factor holds the steady-state level at about unity for any decay.
+        // Worked out once per buffer: it only depends on the decay setting, and computing it per
+        // sample meant a pow() for every sample of audio.
+        val feedback = combFeedback(decay)
+        val combInputGain = (1f - feedback).coerceAtLeast(MIN_COMB_INPUT_GAIN)
+
         var channel = 0
         // Whole samples only; a partial trailing sample would underflow, which is fatal here.
         while (inputBuffer.remaining() >= BYTES_PER_SAMPLE) {
@@ -122,13 +132,7 @@ class ReverbAudioProcessor : BaseAudioProcessor() {
             val drySample = sampleShort / 32768f
             val delayed = preDelayLines[channel].process(drySample, preDelaySamples)
 
-            // Scale the comb input by (1 - feedback). A feedback comb settles at
-            // input / (1 - feedback), so at the long decay times this effect allows - feedback
-            // around 0.97 - feeding it full-scale audio built up to roughly 30x and slammed into
-            // the output clamp, which is what made the reverb sound crunchy and tinny. Scaling the
-            // input by the same factor holds the steady-state level at about unity for any decay.
-            val feedback = combFeedback(decay)
-            val combInput = delayed * (1f - feedback).coerceAtLeast(MIN_COMB_INPUT_GAIN)
+            val combInput = delayed * combInputGain
 
             var combSum = 0f
             for (comb in combs[channel]) {

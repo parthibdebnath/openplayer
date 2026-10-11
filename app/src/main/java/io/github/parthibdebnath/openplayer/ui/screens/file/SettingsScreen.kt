@@ -263,6 +263,7 @@ fun SettingsScreen(viewModel: MainViewModel, authGateManager: AuthGateManager, m
                         viewModel.setBackgroundColorHex(typed)
                     },
                     onFocusChanged = { hexFieldFocused = it },
+                    maxLength = 9,
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(12.dp))
@@ -289,13 +290,6 @@ fun SettingsScreen(viewModel: MainViewModel, authGateManager: AuthGateManager, m
                 label = "New colour each day",
                 checked = settings.dailyRandomBackground,
                 onToggle = { viewModel.setDailyRandomBackground(it) },
-                bold = false,
-            )
-            Spacer(Modifier.height(16.dp))
-            ToggleRow(
-                label = "Invert light/dark",
-                checked = settings.invertContrast,
-                onToggle = { viewModel.setInvertContrast(it) },
                 bold = false,
             )
         }
@@ -330,6 +324,8 @@ fun SettingsScreen(viewModel: MainViewModel, authGateManager: AuthGateManager, m
                             viewModel.setShuffleSeedText(typed)
                         }
                     },
+                    // A locked seed can still be selected and copied, just not changed.
+                    readOnly = settings.shuffleSeedLocked,
                     onFocusChanged = { seedFieldFocused = it },
                     modifier = Modifier.weight(1f),
                 )

@@ -195,18 +195,38 @@ class PlaybackQueueManager {
         return previous
     }
 
-    /** Replaces one visible slot's song with the next one that "didn't make the top 5", deferring the displaced song. */
+    /**
+     * Replaces one visible slot's song with the next one that "didn't make the top 5", deferring
+     * the displaced song to the end of the order.
+     *
+     * Queued songs can be swapped too. The incoming song takes over the queued slot, so it plays at
+     * exactly the point the list shows. The displaced song goes to the end of the generated order,
+     * unless it's already in it, as queued songs from the same playlist usually are.
+     */
     fun replaceUpcomingSlot(visibleIndex: Int) {
         val explicitCount = explicitQueue.size
-        if (visibleIndex < explicitCount) return // queued songs aren't swappable
-        val localIndex = visibleIndex - explicitCount
-        val hiddenIndex = VISIBLE_UPCOMING_COUNT - explicitCount
-        if (localIndex !in upcoming.indices || hiddenIndex !in upcoming.indices) return
-        val displaced = upcoming[localIndex]
-        val incoming = upcoming[hiddenIndex]
-        upcoming[localIndex] = incoming
-        upcoming.removeAt(hiddenIndex)
-        upcoming.add(displaced)
+        val total = explicitCount + upcoming.size
+        // The first song past the visible window is the one swapped in.
+        val hiddenIndex = VISIBLE_UPCOMING_COUNT
+        if (visibleIndex !in 0 until hiddenIndex || hiddenIndex >= total) return
+
+        if (visibleIndex >= explicitCount) {
+            val localIndex = visibleIndex - explicitCount
+            val localHidden = hiddenIndex - explicitCount
+            val displaced = upcoming[localIndex]
+            upcoming[localIndex] = upcoming.removeAt(localHidden)
+            upcoming.add(displaced)
+        } else {
+            val displaced = explicitQueue[visibleIndex]
+            // Removing from further down never shifts the slot being replaced.
+            val incoming = if (hiddenIndex < explicitCount) {
+                explicitQueue.removeAt(hiddenIndex)
+            } else {
+                upcoming.removeAt(hiddenIndex - explicitCount)
+            }
+            explicitQueue[visibleIndex] = incoming
+            if (upcoming.none { it.id == displaced.id }) upcoming.add(displaced)
+        }
         changed()
     }
 

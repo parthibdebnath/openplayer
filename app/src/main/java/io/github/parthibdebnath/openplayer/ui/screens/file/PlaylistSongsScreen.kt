@@ -82,15 +82,21 @@ fun PlaylistSongsScreen(
         if (uri != null) viewModel.addSongFromDocument(playlistId, uri)
     }
 
-    BackHandler(enabled = searchOpen) {
+    // Back closes whichever dialog is open; rename had no way out other than confirming.
+    BackHandler(enabled = renamingSong != null) { renamingSong = null }
+    BackHandler(enabled = searchOpen && renamingSong == null) {
         searchOpen = false
         searchQuery = ""
     }
 
-    val visibleSongs = if (searchOpen && searchQuery.isNotBlank()) {
-        songs.filter { it.displayName.contains(searchQuery, ignoreCase = true) }
-    } else {
-        songs
+    // Remembered: a large playlist is otherwise filtered again on every recomposition, including
+    // the ones the position ticker causes.
+    val visibleSongs = remember(songs, searchOpen, searchQuery) {
+        if (searchOpen && searchQuery.isNotBlank()) {
+            songs.filter { it.displayName.contains(searchQuery, ignoreCase = true) }
+        } else {
+            songs
+        }
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -117,7 +123,7 @@ fun PlaylistSongsScreen(
                 title = "Name Song",
                 initialValue = songBeingRenamed.displayName,
                 onConfirm = { name ->
-                    if (name.isNotBlank()) viewModel.renameSong(songBeingRenamed.id, name)
+                    if (name.isNotBlank()) viewModel.renameSong(songBeingRenamed.id, name.trim())
                     renamingSong = null
                 },
                 modifier = Modifier.padding(bottom = 16.dp),

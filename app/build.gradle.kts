@@ -14,8 +14,8 @@ android {
         applicationId = "io.github.parthibdebnath.openplayer"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0-beta.1"
+        versionCode = 2
+        versionName = "0.1.0-beta.2"
     }
 
     buildTypes {
@@ -44,6 +44,13 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+}
+
+// Room writes each database version's schema here. Kept in version control, so a future schema
+// change can be given a migration (and tested against the old schema) instead of losing the
+// library on update.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {

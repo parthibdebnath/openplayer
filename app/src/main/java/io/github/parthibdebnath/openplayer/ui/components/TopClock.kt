@@ -23,6 +23,9 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +45,8 @@ import java.util.Date
  * previously the row collapsed to nothing and everything above it shifted.
  */
 private val PLAYLIST_LABEL_MIN_HEIGHT = 30.dp
+
+private const val MINUTE_MS = 60_000L
 
 /**
  * The header every screen shares: the clock, with the now-playing playlist name beneath it.
@@ -97,10 +102,15 @@ fun TopClock(
     onOpenSleepTimer: (() -> Unit)? = null,
 ) {
     var now by remember { mutableStateOf(Date()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            now = Date()
-            delay(1000)
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(lifecycle) {
+        // Only while the app is visible, and only when the minute turns over - which is all the
+        // clock shows. It used to wake every second, in the background too.
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                now = Date()
+                delay(MINUTE_MS - System.currentTimeMillis() % MINUTE_MS)
+            }
         }
     }
     val formatted = formatClockTime(now, twentyFourHour)

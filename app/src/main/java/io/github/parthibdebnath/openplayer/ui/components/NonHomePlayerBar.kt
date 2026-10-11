@@ -13,6 +13,8 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -103,6 +105,9 @@ fun NonHomePlayerBar(
                 // Seeking on every touch move restarts buffering continuously, which is what made
                 // dragging this feel stepped; the seek is committed once, on release.
                 commitOnRelease = true,
+                // Position arrives a few times a second; moving linearly between reports keeps the
+                // thumb gliding rather than stepping.
+                followSpec = tween(durationMillis = 260, easing = LinearEasing),
                 modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.width(12.dp))

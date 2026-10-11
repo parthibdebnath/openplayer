@@ -1,6 +1,7 @@
 package io.github.parthibdebnath.openplayer.ui.screens.file
 
 import io.github.parthibdebnath.openplayer.ui.theme.LocalAppColors
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -33,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.parthibdebnath.openplayer.data.model.Playlist
@@ -41,6 +43,7 @@ import io.github.parthibdebnath.openplayer.ui.components.GlassContextMenu
 import io.github.parthibdebnath.openplayer.ui.components.GlassIconButton
 import io.github.parthibdebnath.openplayer.ui.components.GlassNotification
 import io.github.parthibdebnath.openplayer.ui.components.NamingDialog
+import io.github.parthibdebnath.openplayer.ui.components.rememberFolderDisplayName
 import io.github.parthibdebnath.openplayer.ui.components.glassSurface
 import io.github.parthibdebnath.openplayer.ui.theme.interTextStyle
 import io.github.parthibdebnath.openplayer.util.AuthGateManager
@@ -69,6 +72,12 @@ fun PlaylistListScreen(
         if (uri != null) pendingFolderUri = uri
     }
 
+    // Back cancels naming; these dialogs had no way out other than confirming.
+    BackHandler(enabled = renamingPlaylist != null || pendingFolderUri != null) {
+        renamingPlaylist = null
+        pendingFolderUri = null
+    }
+
     Box(modifier = modifier.fillMaxSize()) {
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
         Spacer(Modifier.height(24.dp))
@@ -85,7 +94,7 @@ fun PlaylistListScreen(
                 title = "Name Playlist",
                 initialValue = playlistBeingRenamed.displayName,
                 onConfirm = { name ->
-                    if (name.isNotBlank()) viewModel.renamePlaylist(playlistBeingRenamed.id, name)
+                    if (name.isNotBlank()) viewModel.renamePlaylist(playlistBeingRenamed.id, name.trim())
                     renamingPlaylist = null
                 },
                 modifier = Modifier.padding(bottom = 16.dp),
@@ -93,9 +102,9 @@ fun PlaylistListScreen(
         } else if (folderAwaitingName != null) {
             NamingDialog(
                 title = "Name Playlist",
-                initialValue = "",
+                initialValue = rememberFolderDisplayName(folderAwaitingName),
                 onConfirm = { name ->
-                    if (name.isNotBlank()) viewModel.createPlaylist(folderAwaitingName, name)
+                    if (name.isNotBlank()) viewModel.createPlaylist(folderAwaitingName, name.trim())
                     pendingFolderUri = null
                 },
                 modifier = Modifier.padding(bottom = 16.dp),
@@ -126,7 +135,14 @@ fun PlaylistListScreen(
                             Text(text = (index + 1).toString(), style = interTextStyle(20, bold = true), color = LocalAppColors.current.onBackground)
                         }
                         Spacer(Modifier.size(16.dp))
-                        Text(text = playlist.displayName, style = interTextStyle(20, bold = false), color = LocalAppColors.current.onBackground)
+                        Text(
+                            text = playlist.displayName,
+                            style = interTextStyle(20, bold = false),
+                            color = LocalAppColors.current.onBackground,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
 
                         if (contextMenuPlaylistId == playlist.id) {
                             GlassContextMenu(
@@ -154,7 +170,8 @@ fun PlaylistListScreen(
         deletingPlaylistId?.let { id ->
             GlassNotification(
                 title = "Delete Playlist?",
-                message = "This action cannot be reversed",
+                // Says what actually happens: only the link is removed, never the files.
+                message = "It's removed from openplayer. The folder and its songs aren't touched.",
                 onConfirm = {
                     viewModel.deletePlaylist(id)
                     deletingPlaylistId = null

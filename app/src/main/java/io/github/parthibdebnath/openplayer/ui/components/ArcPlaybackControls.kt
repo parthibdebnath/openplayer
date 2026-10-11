@@ -2,10 +2,11 @@ package io.github.parthibdebnath.openplayer.ui.components
 
 import io.github.parthibdebnath.openplayer.ui.theme.LocalAppColors
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,15 +24,14 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
@@ -135,18 +135,16 @@ fun ArcPlayerCluster(
             )
         }
 
-        // While dragging, the thumb follows the finger from local state and the player is left
-        // alone - seeking on every touch move restarts buffering continuously, which is what made
-        // dragging the bar stall playback. The seek is committed once, on release.
-        var dragProgress by remember { mutableStateOf<Float?>(null) }
-        // Position only arrives a few times a second, so the thumb is interpolated between updates
-        // instead of jumping from one report to the next.
-        val smoothedProgress by animateFloatAsState(
-            targetValue = progress.coerceIn(0f, 1f),
-            animationSpec = tween(durationMillis = 260, easing = LinearEasing),
-            label = "seekProgress",
+        // While dragging, the thumb follows the finger and the player is left alone - seeking on
+        // every touch move restarts buffering continuously, which is what made dragging the bar
+        // stall playback. The seek is committed once, on release. Position only arrives a few
+        // times a second, so in between the thumb is interpolated rather than jumping.
+        val motion = rememberSliderMotion(
+            value = progress.coerceIn(0f, 1f),
+            range = 0f..1f,
+            followSpec = tween(durationMillis = 260, easing = LinearEasing),
         )
-        val clampedProgress = (dragProgress ?: smoothedProgress).coerceIn(0f, 1f)
+        val currentOnSeek by rememberUpdatedState(onSeek)
 
         Canvas(modifier = Modifier.fillMaxSize()) {
             val topLeft = Offset(center.x - seekRadiusPx, center.y - seekRadiusPx)
@@ -160,6 +158,7 @@ fun ArcPlayerCluster(
                 size = arcSize,
                 style = Stroke(width = strokePx),
             )
+            val clampedProgress = motion.value.coerceIn(0f, 1f)
             drawArc(
                 color = contentColor.copy(alpha = 0.85f),
                 startAngle = ArcGeometry.SEEK_START_ANGLE,
@@ -194,23 +193,40 @@ fun ArcPlayerCluster(
                     // (outerRadius, outerRadius) in the region's own coordinate space.
                     val outerRadiusPx = outerRadius.toPx()
                     val localCenter = Offset(outerRadiusPx, outerRadiusPx)
-                    awaitPointerEventScope {
-                        while (true) {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            val distance = hypot(down.position.x - localCenter.x, down.position.y - localCenter.y)
-                            val angle = angleOf(down.position, localCenter)
-                            val onTrack = abs(distance - seekRadiusPx) <= tolerancePx &&
-                                angle >= ArcGeometry.SEEK_START_ANGLE - 8f &&
-                                angle <= ArcGeometry.SEEK_END_ANGLE + 8f
-                            if (!onTrack) continue
-                            down.consume()
-                            dragProgress = progressForTouch(down.position, localCenter)
-                            drag(down.id) { change ->
-                                change.consume()
-                                dragProgress = progressForTouch(change.position, localCenter)
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val distance = hypot(down.position.x - localCenter.x, down.position.y - localCenter.y)
+                        val angle = angleOf(down.position, localCenter)
+                        val onTrack = abs(distance - seekRadiusPx) <= tolerancePx &&
+                            angle >= ArcGeometry.SEEK_START_ANGLE - 8f &&
+                            angle <= ArcGeometry.SEEK_END_ANGLE + 8f
+                        if (!onTrack) return@awaitEachGesture
+                        down.consume()
+
+                        // A tap glides the thumb to the tapped point; a drag keeps it under the
+                        // finger and leaves it where it was let go.
+                        val dragStart = awaitTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
+                        if (dragStart == null) {
+                            val up = currentEvent.changes.firstOrNull { it.id == down.id }
+                            if (up != null && up.changedToUpIgnoreConsumed()) {
+                                val target = progressForTouch(down.position, localCenter)
+                                motion.tapTo(target)
+                                currentOnSeek(target)
                             }
-                            dragProgress?.let(onSeek)
-                            dragProgress = null
+                            return@awaitEachGesture
+                        }
+                        var current = progressForTouch(dragStart.position, localCenter)
+                        motion.dragTo(current)
+                        val completed = drag(dragStart.id) { change ->
+                            change.consume()
+                            current = progressForTouch(change.position, localCenter)
+                            motion.dragTo(current)
+                        }
+                        if (completed) {
+                            motion.release()
+                            currentOnSeek(current)
+                        } else {
+                            motion.cancel()
                         }
                     }
                 },

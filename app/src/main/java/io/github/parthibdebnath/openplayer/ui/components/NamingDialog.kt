@@ -24,8 +24,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.documentfile.provider.DocumentFile
 import io.github.parthibdebnath.openplayer.ui.theme.interTextStyle
+
+/**
+ * The name of a picked folder, as a starting suggestion for naming the playlist made from it.
+ * Empty if the provider can't say.
+ */
+@Composable
+fun rememberFolderDisplayName(folderUri: android.net.Uri): String {
+    val context = LocalContext.current
+    return remember(folderUri) {
+        runCatching { DocumentFile.fromTreeUri(context, folderUri)?.name }.getOrNull().orEmpty()
+    }
+}
 
 /**
  * The single naming/rename dialog design reused for "Name Playlist", "Rename" (playlist or song),
@@ -61,6 +75,10 @@ fun NamingDialog(
                 onValueChange = { text = it },
                 modifier = Modifier.weight(1f),
                 onImeAction = { onConfirm(text) },
+                // Long names wrap rather than scroll out of sight, so every part of them can be
+                // seen and the caret placed anywhere.
+                maxLines = 4,
+                autoFocus = true,
             )
             Spacer(Modifier.width(14.dp))
             Icon(

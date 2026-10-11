@@ -43,25 +43,15 @@ fun parseBackgroundColor(hex: String): Color {
     val cleaned = hex.trim().removePrefix("#")
     if (cleaned.length != 6 && cleaned.length != 8) return Color.Black
     val value = cleaned.toLongOrNull(radix = 16) ?: return Color.Black
-    return if (cleaned.length == 6) Color(value or 0xFF000000L) else Color(value)
+    // Always opaque, even when eight digits include an alpha: a see-through background shows the
+    // black window behind it while the text colour is still picked for the colour as typed, which
+    // could leave light text unreadable, or dark text on black with no way to find the setting.
+    return Color(value or 0xFF000000L)
 }
 
 /**
  * Picks the foreground colour for a background. The threshold is on perceptual luminance rather
  * than a simple average, so mid-tones like a saturated blue still get white text.
- *
- * @param inverted flips the automatic choice. Mid-tone backgrounds can legitimately read either
- *   way, and which one looks right is a matter of taste, so the user can override it.
  */
-fun contentColorFor(background: Color, inverted: Boolean = false): Color {
-    val luminance = background.luminance()
-    // Inversion is only honoured in the mid-range. Against something near-black or near-white the
-    // inverted choice has almost no contrast, so everything - including the toggle that turned it
-    // on - fades into the page and there's no way back. There, the automatic choice always wins.
-    val canInvert = luminance > INVERSION_SAFE_MIN && luminance < INVERSION_SAFE_MAX
-    val light = luminance > 0.45f
-    return if (light != (inverted && canInvert)) Color.Black else Color.White
-}
-
-private const val INVERSION_SAFE_MIN = 0.10f
-private const val INVERSION_SAFE_MAX = 0.80f
+fun contentColorFor(background: Color): Color =
+    if (background.luminance() > 0.45f) Color.Black else Color.White

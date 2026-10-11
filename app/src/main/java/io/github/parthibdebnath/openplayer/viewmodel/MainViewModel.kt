@@ -20,7 +20,10 @@ import io.github.parthibdebnath.openplayer.audio.RepeatMode
 import io.github.parthibdebnath.openplayer.audio.SleepTimerState
 import io.github.parthibdebnath.openplayer.data.model.Playlist
 import io.github.parthibdebnath.openplayer.data.model.Song
+import io.github.parthibdebnath.openplayer.data.repository.EXTERNAL_LABEL
+import io.github.parthibdebnath.openplayer.data.repository.ExternalSongs
 import io.github.parthibdebnath.openplayer.data.repository.PlaylistRepository
+import io.github.parthibdebnath.openplayer.data.repository.isExternal
 import io.github.parthibdebnath.openplayer.playback.PlaybackService
 import io.github.parthibdebnath.openplayer.data.settings.EffectsRepository
 import io.github.parthibdebnath.openplayer.data.settings.EffectsState
@@ -29,6 +32,7 @@ import io.github.parthibdebnath.openplayer.data.settings.ReverbEffectState
 import io.github.parthibdebnath.openplayer.data.settings.ReverbPreset
 import io.github.parthibdebnath.openplayer.data.settings.CROSSFADE_MIN_MS
 import io.github.parthibdebnath.openplayer.data.settings.SettingsRepository
+import io.github.parthibdebnath.openplayer.data.settings.SettingsSnapshot
 import io.github.parthibdebnath.openplayer.data.settings.SpeedEffectState
 import io.github.parthibdebnath.openplayer.data.settings.ThreeDEffectState
 import android.util.Log
@@ -48,26 +52,6 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-
-data class SettingsSnapshot(
-    val notificationMediaControl: Boolean = true,
-    val requireAuthToOpen: Boolean = false,
-    val requireAuthToDelete: Boolean = false,
-    val twoFingerBrightnessGesture: Boolean = true,
-    val threeFingerVolumeGesture: Boolean = true,
-    val glassTheming: Boolean = true,
-    val twentyFourHourClock: Boolean = false,
-    val shuffleSeed: String = "",
-    val shuffleSeedLocked: Boolean = false,
-    val crossfadeMs: Int = CROSSFADE_MIN_MS,
-    val backgroundPlayback: Boolean = true,
-    val backgroundColorHex: String = "#000000",
-    val dailyRandomBackground: Boolean = false,
-    val hideIconBackgrounds: Boolean = true,
-    val invertContrast: Boolean = false,
-    val scrollLongTitles: Boolean = true,
-    val restartSongOnOpen: Boolean = false,
-)
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -106,52 +90,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val playbackUiState: StateFlow<PlaybackUiState> = playbackEngine.uiState
 
+    // Loaded eagerly, so the SFX screen opens on the saved values rather than flashing defaults.
     val effectsState: StateFlow<EffectsState> = effectsRepository.effectsState
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), EffectsState())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, EffectsState())
 
     val sleepTimerState: StateFlow<SleepTimerState> = playbackEngine.sleepTimerManager.state
     val outputDevice: StateFlow<OutputDevice> = playbackEngine.outputDeviceManager.currentDevice
     val bluetoothConnected: StateFlow<Boolean> = playbackEngine.outputDeviceManager.bluetoothConnected
 
-    val settingsSnapshot: StateFlow<SettingsSnapshot> = combine(
-        settingsRepository.notificationMediaControl,
-        settingsRepository.requireAuthToOpen,
-        settingsRepository.requireAuthToDelete,
-        settingsRepository.twoFingerBrightnessGesture,
-        settingsRepository.threeFingerVolumeGesture,
-        settingsRepository.glassTheming,
-        settingsRepository.twentyFourHourClock,
-        settingsRepository.shuffleSeed,
-        settingsRepository.shuffleSeedLocked,
-        settingsRepository.crossfadeMs,
-        settingsRepository.backgroundPlayback,
-        settingsRepository.backgroundColorHex,
-        settingsRepository.dailyRandomBackground,
-        settingsRepository.hideIconBackgrounds,
-        settingsRepository.invertContrast,
-        settingsRepository.scrollLongTitles,
-        settingsRepository.restartSongOnOpen,
-    ) { values ->
-        SettingsSnapshot(
-            notificationMediaControl = values[0] as Boolean,
-            requireAuthToOpen = values[1] as Boolean,
-            requireAuthToDelete = values[2] as Boolean,
-            twoFingerBrightnessGesture = values[3] as Boolean,
-            threeFingerVolumeGesture = values[4] as Boolean,
-            glassTheming = values[5] as Boolean,
-            twentyFourHourClock = values[6] as Boolean,
-            shuffleSeed = values[7] as String,
-            shuffleSeedLocked = values[8] as Boolean,
-            crossfadeMs = values[9] as Int,
-            backgroundPlayback = values[10] as Boolean,
-            backgroundColorHex = values[11] as String,
-            dailyRandomBackground = values[12] as Boolean,
-            hideIconBackgrounds = values[13] as Boolean,
-            invertContrast = values[14] as Boolean,
-            scrollLongTitles = values[15] as Boolean,
-            restartSongOnOpen = values[16] as Boolean,
-        )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SettingsSnapshot())
+    // Eagerly, so the value is already current whenever something reads it outside composition
+    // - the background-playback check when the app is left, for one.
+    val settingsSnapshot: StateFlow<SettingsSnapshot> = settingsRepository.snapshot
+        .stateIn(viewModelScope, SharingStarted.Eagerly, SettingsSnapshot())
 
     /**
      * File/SAF operations can throw for all sorts of provider-specific reasons. A bare
@@ -173,7 +123,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch(mutationExceptionHandler) {
-            runCatching { settingsRepository.ensureShuffleSeed() }
+            runCatching { settingsRepository.prepare() }
             // Restored before the rescan rather than after it: the saved songs are already in the
             // database, and a large library can take a while to rescan. The engine itself makes
             // sure this only happens once per process, so recreating the UI while music plays in
@@ -187,8 +137,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             playlistRepository.rescanAll()
             // Anything the rescan found gone - deleted, moved or renamed outside the app - comes
             // out of the queue now, rather than failing when playback reaches it.
+            // Songs opened from another app have no row to find, and are left alone.
             val existing = playlistRepository.getAllSongIds()
-            playbackEngine.dropSongs { it.id !in existing }
+            playbackEngine.dropSongs { !it.isExternal && it.id !in existing }
         }
         // Polled rather than scheduled for midnight: a minute's granularity is plenty for a
         // once-a-day colour, and it picks up correctly after the app has been closed over midnight.
@@ -201,6 +152,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         viewModelScope.launch {
+            // The stored flow, not the StateFlow above: that one starts from a placeholder, and
+            // applying it would switch effects off for a moment whenever the UI is recreated
+            // while music plays in the background.
             effectsRepository.effectsState.collect { playbackEngine.applyEffects(it) }
         }
         viewModelScope.launch {
@@ -376,6 +330,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // --- Opening a file from another app ------------------------------------------------------
+
+    private val _pendingOpen = MutableStateFlow<Uri?>(null)
+
+    /**
+     * A file another app asked us to play, waiting until the app is unlocked - opening one
+     * shouldn't get round the lock, or replace the queue behind it.
+     */
+    val pendingOpen: StateFlow<Uri?> = _pendingOpen.asStateFlow()
+
+    fun requestOpen(uri: Uri) {
+        _pendingOpen.value = uri
+    }
+
+    /** Plays the pending file on its own, replacing the queue. */
+    fun playPendingOpen() = launchSafely {
+        val uri = _pendingOpen.value ?: return@launchSafely
+        _pendingOpen.value = null
+        val song = ExternalSongs.resolve(getApplication(), uri)
+        if (song == null) {
+            _openFailed.value = true
+            return@launchSafely
+        }
+        playbackEngine.playSongs(listOf(song), EXTERNAL_LABEL, PlayOrder.SEQUENTIAL)
+    }
+
+    private val _openFailed = MutableStateFlow(false)
+
+    /** True after a file from another app couldn't be opened, until the message is dismissed. */
+    val openFailed: StateFlow<Boolean> = _openFailed.asStateFlow()
+
+    fun dismissOpenFailed() {
+        _openFailed.value = false
+    }
+
     // --- Playback --------------------------------------------------------------------------
 
     fun playPlaylistInOrder(songs: List<Song>, label: String) {
@@ -458,7 +447,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setBackgroundPlayback(value: Boolean) = viewModelScope.launch { settingsRepository.setBackgroundPlayback(value) }
     fun setBackgroundColorHex(value: String) = viewModelScope.launch { settingsRepository.setBackgroundColorHex(value) }
     fun setHideIconBackgrounds(value: Boolean) = viewModelScope.launch { settingsRepository.setHideIconBackgrounds(value) }
-    fun setInvertContrast(value: Boolean) = viewModelScope.launch { settingsRepository.setInvertContrast(value) }
     fun setScrollLongTitles(value: Boolean) = viewModelScope.launch { settingsRepository.setScrollLongTitles(value) }
     fun setRestartSongOnOpen(value: Boolean) = viewModelScope.launch { settingsRepository.setRestartSongOnOpen(value) }
 

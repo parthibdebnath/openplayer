@@ -49,11 +49,14 @@ fun GlassContextMenu(
         // frosted-gray look directly.
         // Hugs its content, per the mockups - the menu is a small box tucked under the row that
         // was held, not a full-width panel.
+        // Follows the background's lightness like everything else: a fixed dark panel put black
+        // text on dark grey whenever a light background colour was chosen.
+        val panel = if (LocalAppColors.current.isLightBackground) Color(0xFFF2F2F5) else Color(0xFF1C1C1E)
         Column(
             modifier = Modifier
                 .widthIn(min = 120.dp)
                 .clip(RoundedCornerShape(10.dp))
-                .background(Color(0xFF1C1C1E).copy(alpha = 0.96f))
+                .background(panel.copy(alpha = 0.96f))
                 .border(1.dp, LocalAppColors.current.onBackground.copy(alpha = 0.18f), RoundedCornerShape(10.dp))
                 .padding(vertical = 10.dp, horizontal = 18.dp),
         ) {

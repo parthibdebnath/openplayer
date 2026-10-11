@@ -208,14 +208,13 @@ fun PlayScreen(
             modifier = Modifier.fillMaxSize(),
         )
 
-        // Only surfaces when playback has actually failed, so a failure can be read straight off
-        // the screen instead of inferred, without cluttering the UI the rest of the time.
-        if (playbackState.diagnostics.contains("err=")) {
+        // Only while playback has actually failed, and gone again once something plays.
+        playbackState.error?.let { message ->
             Text(
-                text = playbackState.diagnostics,
-                style = interTextStyle(11, bold = false),
-                color = LocalAppColors.current.onBackground.copy(alpha = 0.45f),
-                modifier = Modifier.align(Alignment.TopStart).padding(top = 2.dp),
+                text = "Can't play this song: $message",
+                style = interTextStyle(12, bold = false),
+                color = LocalAppColors.current.onBackground.copy(alpha = 0.6f),
+                modifier = Modifier.align(Alignment.TopStart).padding(start = SCREEN_GUTTER, top = 2.dp),
             )
         }
 

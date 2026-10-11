@@ -1,6 +1,7 @@
 package io.github.parthibdebnath.openplayer.ui.screens.file
 
 import io.github.parthibdebnath.openplayer.ui.theme.LocalAppColors
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -33,10 +34,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.parthibdebnath.openplayer.ui.components.GlassIconButton
 import io.github.parthibdebnath.openplayer.ui.components.NamingDialog
+import io.github.parthibdebnath.openplayer.ui.components.rememberFolderDisplayName
 import io.github.parthibdebnath.openplayer.ui.components.glassSurface
 import io.github.parthibdebnath.openplayer.ui.theme.interTextStyle
 import io.github.parthibdebnath.openplayer.viewmodel.MainViewModel
@@ -92,21 +95,30 @@ fun MultiPlaylistScreen(
                             }
                         }
                         Spacer(Modifier.size(16.dp))
-                        Text(text = playlist.displayName, style = interTextStyle(20, bold = false), color = LocalAppColors.current.onBackground)
+                        Text(
+                            text = playlist.displayName,
+                            style = interTextStyle(20, bold = false),
+                            color = LocalAppColors.current.onBackground,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
                     }
                 }
             }
-            Text(
-                text = "Select All/None",
-                style = interTextStyle(20, bold = true),
-                color = LocalAppColors.current.onBackground,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
-                        selectedIds = if (selectedIds.size == playlists.size) emptySet() else playlists.map { it.id }.toSet()
-                    },
-            )
         }
+        // Below the list rather than laid over its bottom edge, where it covered the last rows.
+        Text(
+            text = "Select All/None",
+            style = interTextStyle(20, bold = true),
+            color = LocalAppColors.current.onBackground,
+            modifier = Modifier
+                .padding(top = 8.dp)
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                    val allIds = playlists.map { it.id }.toSet()
+                    selectedIds = if (allIds.isNotEmpty() && selectedIds.containsAll(allIds)) emptySet() else allIds
+                },
+        )
 
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 17.dp),
@@ -157,13 +169,14 @@ fun MultiPlaylistScreen(
         }
     }
 
+    BackHandler(enabled = pendingFolderUri != null) { pendingFolderUri = null }
     pendingFolderUri?.let { uri ->
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             NamingDialog(
                 title = "Name Playlist",
-                initialValue = "",
+                initialValue = rememberFolderDisplayName(uri),
                 onConfirm = { name ->
-                    if (name.isNotBlank()) viewModel.createPlaylist(uri, name)
+                    if (name.isNotBlank()) viewModel.createPlaylist(uri, name.trim())
                     pendingFolderUri = null
                 },
                 modifier = Modifier.padding(top = 110.dp),

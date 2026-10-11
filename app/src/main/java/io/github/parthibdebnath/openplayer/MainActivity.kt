@@ -2,8 +2,10 @@ package io.github.parthibdebnath.openplayer
 
 import android.Manifest
 import android.os.Build
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.compose.setContent
+import androidx.activity.viewModels
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -29,7 +31,6 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.parthibdebnath.openplayer.ui.AppRoot
 import io.github.parthibdebnath.openplayer.ui.theme.OpenPlayerTheme
 import io.github.parthibdebnath.openplayer.util.AuthGateManager
@@ -40,18 +41,24 @@ import kotlinx.coroutines.launch
 class MainActivity : FragmentActivity() {
     private val requestPermissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
 
+    // The same instance the composables get from viewModel(): both are scoped to this activity.
+    private val mainViewModel: MainViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         goFullscreen()
         requestRuntimePermissions()
+        // Only on a fresh start: after recreation (or process death) the same intent comes back,
+        // and replaying it would restart the opened song over whatever was playing since.
+        if (savedInstanceState == null) handleOpenIntent(intent)
         val authGateManager = AuthGateManager(this)
         val brightnessController = BrightnessVolumeController(this)
 
         setContent {
             OpenPlayerTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = Color.Black) {
-                    val viewModel: MainViewModel = viewModel()
+                    val viewModel = mainViewModel
                     val requireAuth by viewModel.requireAuthToOpen.collectAsStateWithLifecycle()
                     // Deliberately not saved across recreation: restoring "unlocked" after the
                     // process was killed in the background would skip the lock entirely.
@@ -81,6 +88,19 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleOpenIntent(intent)
+    }
+
+    /** "Open with" from a file manager or another app: play that one file. */
+    private fun handleOpenIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_VIEW) return
+        val uri = intent.data ?: return
+        mainViewModel.requestOpen(uri)
     }
 
     /** Status and navigation bars stay hidden until swiped for, so the app owns the whole display. */

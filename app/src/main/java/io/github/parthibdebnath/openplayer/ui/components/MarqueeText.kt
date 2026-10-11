@@ -8,9 +8,13 @@ import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.ui.Alignment
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -41,19 +45,22 @@ fun MarqueeText(
     val scrollingEnabled = LocalScrollLongTitles.current
 
     val overflowPx = (textWidthPx - containerWidthPx).coerceAtLeast(0)
-    val offsetPx = remember { mutableFloatStateOf(0f) }
+    // Animated on the frame clock, so it moves in step with the display and stops entirely while
+    // the app isn't on screen - a timer-driven loop kept running in the background.
+    val offsetPx = remember { Animatable(0f) }
 
     LaunchedEffect(text, overflowPx, scrollingEnabled) {
         // Reset unconditionally: turning scrolling off mid-scroll has to bring the text back to
         // the start rather than leaving it frozen somewhere in the middle.
-        offsetPx.floatValue = 0f
+        offsetPx.snapTo(0f)
         if (!scrollingEnabled || overflowPx <= 0) return@LaunchedEffect
+        val scrollMs = (overflowPx * 8).coerceIn(800, 6000)
         while (true) {
-            kotlinx.coroutines.delay(START_PAUSE_MS)
-            animateOffset(offsetPx, from = 0f, to = -overflowPx.toFloat(), durationMs = (overflowPx * 8).coerceIn(800, 6000))
-            kotlinx.coroutines.delay(END_PAUSE_MS)
+            delay(START_PAUSE_MS)
+            offsetPx.animateTo(-overflowPx.toFloat(), tween(scrollMs, easing = LinearEasing))
+            delay(END_PAUSE_MS)
             // Ease back to the start instead of cutting to it, so the loop doesn't jolt.
-            animateOffset(offsetPx, from = -overflowPx.toFloat(), to = 0f, durationMs = RETURN_MS)
+            offsetPx.animateTo(0f, tween(RETURN_MS, easing = FastOutSlowInEasing))
         }
     }
 
@@ -76,17 +83,8 @@ fun MarqueeText(
                 // instead of ever scrolling.
                 .wrapContentWidth(align = Alignment.Start, unbounded = true)
                 .onGloballyPositioned { textWidthPx = it.size.width }
-                .offset { IntOffset(offsetPx.floatValue.toInt(), 0) },
+                .offset { IntOffset(offsetPx.value.toInt(), 0) },
         )
-    }
-}
-
-private suspend fun animateOffset(state: androidx.compose.runtime.MutableFloatState, from: Float, to: Float, durationMs: Int) {
-    val steps = (durationMs / 16).coerceAtLeast(1)
-    for (i in 0..steps) {
-        val t = i / steps.toFloat()
-        state.floatValue = from + (to - from) * t
-        kotlinx.coroutines.delay(16)
     }
 }
 

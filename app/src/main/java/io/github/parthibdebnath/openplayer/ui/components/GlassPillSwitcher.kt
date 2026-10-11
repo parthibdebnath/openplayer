@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.parthibdebnath.openplayer.ui.theme.InterFontFamily
@@ -65,7 +66,8 @@ fun GlassPillSwitcher(
                 modifier = Modifier
                     .padding(vertical = 4.dp)
                     .height(height - 8.dp)
-                    .offset(x = animatedX)
+                    // Lambda form: the animation then only re-places the pill each frame.
+                    .offset { IntOffset(animatedX.roundToPx(), 0) }
                     .width(segmentWidth - inset * 2)
                     .glassSurface(shape = RoundedCornerShape((height - 8.dp) / 2), opacity = 1f),
             )

@@ -40,7 +40,7 @@ fun SpeedTab(
     onUpdate: ((SpeedEffectState) -> SpeedEffectState) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val currentIndex = SPEED_STEPS.indexOf(state.speed).let { if (it < 0) 2 else it }
+    val currentIndex = speedIndexOf(state.speed)
 
     Column(modifier = modifier.fillMaxWidth()) {
         ToggleRow(label = "Change Speed", checked = state.enabled, onToggle = { on -> onUpdate { it.copy(enabled = on) } })
@@ -79,7 +79,7 @@ fun SpeedTab(
             GlassIconButton(
                 icon = Icons.Filled.Remove,
                 contentDescription = "Decrease speed",
-                onClick = { onUpdate { it.copy(speed = SPEED_STEPS[(SPEED_STEPS.indexOf(it.speed) - 1).coerceIn(0, SPEED_STEPS.lastIndex)]) } },
+                onClick = { onUpdate { it.copy(speed = SPEED_STEPS[(speedIndexOf(it.speed) - 1).coerceIn(0, SPEED_STEPS.lastIndex)]) } },
                 circleSize = 28.dp,
                 iconSize = 20.dp,
             )
@@ -87,7 +87,7 @@ fun SpeedTab(
             GlassIconButton(
                 icon = Icons.Filled.Add,
                 contentDescription = "Increase speed",
-                onClick = { onUpdate { it.copy(speed = SPEED_STEPS[(SPEED_STEPS.indexOf(it.speed) + 1).coerceIn(0, SPEED_STEPS.lastIndex)]) } },
+                onClick = { onUpdate { it.copy(speed = SPEED_STEPS[(speedIndexOf(it.speed) + 1).coerceIn(0, SPEED_STEPS.lastIndex)]) } },
                 circleSize = 28.dp,
                 iconSize = 20.dp,
             )
@@ -108,6 +108,10 @@ private fun SpeedStepButton(label: String, size: Dp, verticalOffset: Dp, onClick
         Text(text = label, style = interTextStyle(if (size >= 50.dp) 16 else 14, bold = true), color = LocalAppColors.current.onBackground)
     }
 }
+
+/** The step nearest [speed], so a value that isn't exactly one of the steps still steps sensibly. */
+private fun speedIndexOf(speed: Float): Int =
+    SPEED_STEPS.indices.minBy { kotlin.math.abs(SPEED_STEPS[it] - speed) }
 
 private fun formatSpeedLabel(speed: Float): String =
     if (speed == speed.toLong().toFloat()) speed.toLong().toString() else speed.toString()

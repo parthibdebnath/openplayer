@@ -65,18 +65,22 @@ fun SleepTimerOverlay(
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             GlassTextField(
                 value = hoursText,
-                onValueChange = { if (it.length <= 2) hoursText = it.filter(Char::isDigit) },
+                onValueChange = { hoursText = it },
                 modifier = Modifier.width(56.dp),
                 keyboardType = KeyboardType.Number,
+                maxLength = 2,
+                digitsOnly = true,
             )
             Spacer(Modifier.width(6.dp))
             Text(text = "hr", style = interTextStyle(16, bold = false), color = LocalAppColors.current.onBackground)
             Spacer(Modifier.width(16.dp))
             GlassTextField(
                 value = minutesText,
-                onValueChange = { if (it.length <= 2) minutesText = it.filter(Char::isDigit) },
+                onValueChange = { minutesText = it },
                 modifier = Modifier.width(56.dp),
                 keyboardType = KeyboardType.Number,
+                maxLength = 2,
+                digitsOnly = true,
             )
             Spacer(Modifier.width(6.dp))
             Text(text = "min", style = interTextStyle(16, bold = false), color = LocalAppColors.current.onBackground)

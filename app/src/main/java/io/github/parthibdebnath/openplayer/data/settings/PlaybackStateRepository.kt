@@ -32,6 +32,19 @@ data class SavedQueue(
     val historySongIds: List<Long> = emptyList(),
     val repeatMode: String = "OFF",
     val shuffled: Boolean = false,
+    /** Songs opened from another app, which have no database row to resolve their ids against. */
+    val externalSongs: List<SavedExternalSong> = emptyList(),
+)
+
+/** Everything needed to rebuild a song that was opened from another app. */
+@Serializable
+data class SavedExternalSong(
+    val id: Long,
+    val uri: String,
+    val fileName: String,
+    val displayName: String,
+    val artist: String,
+    val durationMs: Long,
 )
 
 /** How far into [songId] playback had got. */

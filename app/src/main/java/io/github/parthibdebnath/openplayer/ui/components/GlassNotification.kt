@@ -26,6 +26,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import io.github.parthibdebnath.openplayer.ui.theme.interTextStyle
 import kotlinx.coroutines.launch
@@ -48,6 +49,8 @@ fun GlassNotification(
     val offset = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
     val scope = rememberCoroutineScope()
     var dismissed by remember { mutableStateOf(false) }
+    // In dp: a fixed pixel count was a much shorter swipe on a low-density screen than a high one.
+    val dismissThresholdPx = with(LocalDensity.current) { 48.dp.toPx() }
 
     LaunchedEffect(dismissed) {
         if (dismissed) onDismiss()
@@ -66,8 +69,7 @@ fun GlassNotification(
                     onDragEnd = {
                         val dx = offset.value.x
                         val dy = offset.value.y
-                        val threshold = 120f
-                        val shouldDismiss = abs(dx) > threshold || dy < -threshold
+                        val shouldDismiss = abs(dx) > dismissThresholdPx || dy < -dismissThresholdPx
                         scope.launch {
                             if (shouldDismiss) {
                                 dismissed = true
