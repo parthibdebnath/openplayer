@@ -810,7 +810,22 @@ class PlaybackEngine private constructor(context: Context) {
     }
 
     fun queueSong(song: Song) {
+        // With nothing loaded there's no "next" to queue behind: start it instead.
+        if (queueManager.current == null) {
+            playSongs(listOf(song), song.displayName, PlayOrder.SEQUENTIAL)
+            return
+        }
         queueManager.queueSong(song)
+        syncUpcomingWindow()
+        syncState()
+    }
+
+    fun playNext(song: Song) {
+        if (queueManager.current == null) {
+            playSongs(listOf(song), song.displayName, PlayOrder.SEQUENTIAL)
+            return
+        }
+        queueManager.playNext(song)
         syncUpcomingWindow()
         syncState()
     }

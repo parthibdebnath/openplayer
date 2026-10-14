@@ -1,12 +1,12 @@
 package io.github.parthibdebnath.openplayer.data.db
 
 import androidx.room.Dao
-import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
-import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
+
+data class PlaylistSongCount(val playlistId: Long, val songCount: Int)
 
 @Dao
 interface SongDao {
@@ -19,20 +19,12 @@ interface SongDao {
     @Query("SELECT * FROM songs WHERE playlistId IN (:playlistIds) ORDER BY playlistId, sortIndex ASC")
     suspend fun getByPlaylists(playlistIds: List<Long>): List<SongEntity>
 
-    @Query("SELECT documentUri FROM songs WHERE playlistId = :playlistId")
-    suspend fun getDocumentUrisForPlaylist(playlistId: Long): List<String>
-
-    @Query("SELECT COUNT(*) FROM songs WHERE playlistId = :playlistId")
-    fun observeCountForPlaylist(playlistId: Long): Flow<Int>
+    /** Every playlist's song count in one grouped query, for the playlist list. */
+    @Query("SELECT playlistId, COUNT(*) AS songCount FROM songs GROUP BY playlistId")
+    fun observeCounts(): Flow<List<PlaylistSongCount>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(songs: List<SongEntity>)
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insert(song: SongEntity): Long
-
-    @Update
-    suspend fun update(song: SongEntity)
 
     /**
      * Touches only the two metadata columns. Writing back a whole row would overwrite anything
@@ -42,17 +34,15 @@ interface SongDao {
     @Query("UPDATE songs SET artist = :artist, durationMs = :durationMs WHERE id = :id")
     suspend fun updateMetadata(id: Long, artist: String, durationMs: Long)
 
+    /** Renames without rewriting the rest of the row, which metadata loading may be updating. */
+    @Query("UPDATE songs SET displayName = :displayName WHERE id = :id")
+    suspend fun updateDisplayName(id: Long, displayName: String)
+
     @Query("SELECT id FROM songs")
     suspend fun getAllIds(): List<Long>
 
-    @Delete
-    suspend fun delete(song: SongEntity)
-
     @Query("DELETE FROM songs WHERE documentUri IN (:documentUris)")
     suspend fun deleteByDocumentUris(documentUris: List<String>)
-
-    @Query("SELECT * FROM songs WHERE id = :id")
-    suspend fun getById(id: Long): SongEntity?
 
     @Query("SELECT * FROM songs WHERE id IN (:ids)")
     suspend fun getByIds(ids: List<Long>): List<SongEntity>

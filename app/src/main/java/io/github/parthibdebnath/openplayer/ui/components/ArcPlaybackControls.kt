@@ -97,8 +97,23 @@ private fun pointOnCircle(center: Offset, radiusPx: Float, angleDeg: Float): Off
 private fun angleOf(position: Offset, center: Offset): Float =
     Math.toDegrees(atan2((position.y - center.y).toDouble(), (position.x - center.x).toDouble())).toFloat()
 
-private fun progressForTouch(position: Offset, center: Offset): Float =
-    ((angleOf(position, center) - ArcGeometry.SEEK_START_ANGLE) / ArcGeometry.SEEK_SWEEP).coerceIn(0f, 1f)
+/** Middle of the seek track, in degrees. */
+private const val SEEK_MID_ANGLE = ArcGeometry.SEEK_START_ANGLE + ArcGeometry.SEEK_SWEEP / 2f
+
+/**
+ * Where on the track a touch falls, 0 at the start to 1 at the end.
+ *
+ * The angle is unwrapped around the middle of the track first. atan2 jumps from -180 to +180
+ * directly below and to the left of the circle's centre, and the centre sits just below the seek
+ * area - so a drag that carried on down past the start of the track, onto the tab bar, suddenly
+ * read as far past the *end*, and letting go there skipped the rest of the song.
+ */
+private fun progressForTouch(position: Offset, center: Offset): Float {
+    var angle = angleOf(position, center)
+    if (angle > SEEK_MID_ANGLE + 180f) angle -= 360f
+    if (angle <= SEEK_MID_ANGLE - 180f) angle += 360f
+    return ((angle - ArcGeometry.SEEK_START_ANGLE) / ArcGeometry.SEEK_SWEEP).coerceIn(0f, 1f)
+}
 
 /**
  * The Play screen's transport cluster: the curved seek track with its draggable thumb, plus the

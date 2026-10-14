@@ -39,7 +39,8 @@ fun FileScreen(
     val settings by viewModel.settingsSnapshot.collectAsStateWithLifecycle()
 
     BackHandler(enabled = destination != FileDestination.PlaylistList) {
-        destination = FileDestination.PlaylistList
+        // The licences page is reached from Settings, so Back returns there.
+        destination = if (destination == FileDestination.Licences) FileDestination.Settings else FileDestination.PlaylistList
     }
 
     // Re-tapping the File tab backs out of Settings (or any other sub-screen).
@@ -79,7 +80,12 @@ fun FileScreen(
                     viewModel = viewModel,
                     authGateManager = authGateManager,
                 )
-                is FileDestination.Settings -> SettingsScreen(viewModel = viewModel, authGateManager = authGateManager)
+                is FileDestination.Settings -> SettingsScreen(
+                    viewModel = viewModel,
+                    authGateManager = authGateManager,
+                    onOpenLicences = { destination = FileDestination.Licences },
+                )
+                is FileDestination.Licences -> LicencesScreen()
             }
         }
         NonHomePlayerBar(
@@ -93,7 +99,7 @@ fun FileScreen(
             onSeek = { viewModel.seekTo(it) },
             // Toggles: tapping the gear while already in Settings goes back.
             onOpenSettings = {
-                destination = if (destination is FileDestination.Settings) {
+                destination = if (destination is FileDestination.Settings || destination is FileDestination.Licences) {
                     FileDestination.PlaylistList
                 } else {
                     FileDestination.Settings

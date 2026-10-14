@@ -24,6 +24,8 @@ import io.github.parthibdebnath.openplayer.ui.theme.interTextStyle
 data class ContextMenuItem(
     val label: String,
     val destructive: Boolean = false,
+    /** Marks the current choice in a menu of options, such as a sort order. */
+    val selected: Boolean = false,
     val onClick: () -> Unit,
 )
 
@@ -62,7 +64,7 @@ fun GlassContextMenu(
         ) {
             items.forEach { item ->
                 Text(
-                    text = item.label,
+                    text = if (item.selected) "${item.label}  ✓" else item.label,
                     style = interTextStyle(18, bold = item.destructive),
                     color = LocalAppColors.current.onBackground,
                     modifier = Modifier

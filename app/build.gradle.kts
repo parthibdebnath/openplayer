@@ -1,3 +1,13 @@
+import java.util.Properties
+
+// Release signing comes from keystore.properties in the project root, which is git-ignored and
+// holds storeFile, storePassword, keyAlias and keyPassword. Without it, release builds are simply
+// left unsigned.
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -14,12 +24,24 @@ android {
         applicationId = "io.github.parthibdebnath.openplayer"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.1.0-beta.2"
+        versionCode = 3
+        versionName = "0.1.0-beta.3"
+    }
+
+    signingConfigs {
+        if (!keystoreProperties.isEmpty) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
         release {
+            signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -58,18 +80,13 @@ dependencies {
     implementation(libs.lifecycle.runtime.ktx)
     implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.lifecycle.runtime.compose)
-    implementation(libs.lifecycle.service)
     implementation(libs.activity.compose)
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.graphics)
-    implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
     implementation(libs.compose.material.icons.extended)
-    debugImplementation(libs.compose.ui.tooling)
-
-    implementation(libs.navigation.compose)
 
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.session)

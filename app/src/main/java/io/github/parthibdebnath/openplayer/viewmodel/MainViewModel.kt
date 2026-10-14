@@ -23,6 +23,8 @@ import io.github.parthibdebnath.openplayer.data.model.Song
 import io.github.parthibdebnath.openplayer.data.repository.EXTERNAL_LABEL
 import io.github.parthibdebnath.openplayer.data.repository.ExternalSongs
 import io.github.parthibdebnath.openplayer.data.repository.PlaylistRepository
+import io.github.parthibdebnath.openplayer.data.repository.REMOVED_SONGS_FOLDER_NAME
+import io.github.parthibdebnath.openplayer.data.model.SongSort
 import io.github.parthibdebnath.openplayer.data.repository.isExternal
 import io.github.parthibdebnath.openplayer.playback.PlaybackService
 import io.github.parthibdebnath.openplayer.data.settings.EffectsRepository
@@ -36,6 +38,10 @@ import io.github.parthibdebnath.openplayer.data.settings.SettingsSnapshot
 import io.github.parthibdebnath.openplayer.data.settings.SpeedEffectState
 import io.github.parthibdebnath.openplayer.data.settings.ThreeDEffectState
 import android.util.Log
+import android.widget.Toast
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -79,6 +85,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .flatMapLatest { id ->
             if (id == null) flowOf(emptyList()) else playlistRepository.observeSongs(id)
         }
+        // Sorted here, off the main thread, in the order the user picked - "play in order" then
+        // plays exactly what the list shows.
+        .combine(settingsRepository.songSort) { songs, sort -> sort.sort(songs) }
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(30_000), emptyList())
 
     fun onViewPlaylist(playlistId: Long?) {
@@ -143,8 +153,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         // Polled rather than scheduled for midnight: a minute's granularity is plenty for a
         // once-a-day colour, and it picks up correctly after the app has been closed over midnight.
+        // Only while the app is on screen - nobody sees the colour otherwise, and it used to poll
+        // in the background for as long as the app stayed in memory.
         viewModelScope.launch {
             while (true) {
+                appVisible.first { it }
                 if (settingsSnapshot.value.dailyRandomBackground) {
                     runCatching { settingsRepository.applyDailyRandomColorIfDue(todayStamp()) }
                 }
@@ -180,6 +193,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private var playbackServiceRunning = false
+
+    /** Whether the app is on screen; see [onAppForegrounded] and [onAppBackgrounded]. */
+    private val appVisible = MutableStateFlow(false)
+
+    /** The installed version, for the About section. */
+    val appVersion: String = runCatching {
+        application.packageManager.getPackageInfo(application.packageName, 0).versionName
+    }.getOrNull().orEmpty()
+
+    private fun toast(message: String) {
+        Toast.makeText(getApplication(), message, Toast.LENGTH_SHORT).show()
+    }
 
     private companion object {
         const val DAILY_COLOR_CHECK_INTERVAL_MS = 60_000L
@@ -239,6 +264,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Re-checks notification and battery access, either of which can change while the app is away. */
     fun onAppForegrounded() {
+        appVisible.value = true
         _batteryOptimized.value = isBatteryOptimized()
         val blocked = !canPostNotifications()
         _notificationsBlocked.value = blocked
@@ -290,15 +316,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun observeSongCount(playlistId: Long): Flow<Int> = playlistRepository.observeSongCount(playlistId)
-
     private fun launchSafely(block: suspend () -> Unit) =
         viewModelScope.launch(mutationExceptionHandler) { block() }
 
     // --- Playlist / file management -----------------------------------------------------
 
     fun createPlaylist(folderUri: Uri, name: String) = launchSafely {
+        if (playlists.value.any { it.folderUri == folderUri.toString() }) {
+            toast("That folder is already a playlist")
+            return@launchSafely
+        }
         playlistRepository.createPlaylist(folderUri, name)
+    }
+
+    /** Re-reads a playlist's folder now, rather than waiting for the next launch. */
+    fun rescanPlaylist(playlistId: Long) = launchSafely {
+        playlistRepository.rescanPlaylist(playlistId)
+        val existing = playlistRepository.getAllSongIds()
+        playbackEngine.dropSongs { !it.isExternal && it.playlistId == playlistId && it.id !in existing }
     }
 
     fun renamePlaylist(playlistId: Long, newName: String) = launchSafely {
@@ -320,15 +355,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         playbackEngine.updateSong(songId) { it.copy(displayName = newName) }
     }
 
-    fun addSongFromDocument(playlistId: Long, sourceUri: Uri) = launchSafely {
-        playlistRepository.addSongFromDocument(playlistId, sourceUri)
+    fun addSongs(playlistId: Long, sourceUris: List<Uri>) = launchSafely {
+        if (sourceUris.isEmpty()) return@launchSafely
+        val added = playlistRepository.addSongsFromDocuments(playlistId, sourceUris)
+        when {
+            added == sourceUris.size -> toast(if (added == 1) "Song added" else "$added songs added")
+            added == 0 -> toast("Couldn't add ${if (sourceUris.size == 1) "that file" else "those files"} to this folder")
+            else -> toast("$added of ${sourceUris.size} songs added")
+        }
     }
 
     fun removeSong(song: Song) = launchSafely {
         if (playlistRepository.removeSong(song)) {
             playbackEngine.dropSongs { it.id == song.id }
+        } else {
+            // Previously a failed move simply did nothing, which looked like the tap was missed.
+            toast("Couldn't move \"${song.displayName}\" to $REMOVED_SONGS_FOLDER_NAME")
         }
     }
+
+    fun setSongSort(sort: SongSort) = viewModelScope.launch { settingsRepository.setSongSort(sort) }
 
     // --- Opening a file from another app ------------------------------------------------------
 
@@ -385,16 +431,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Plays several playlists as one combined queue, labeled "Multi-Playlist" (per spec). */
     fun playMultiPlaylist(playlistIds: List<Long>, shuffled: Boolean) = launchSafely {
+        play(orderedSongs(playlistIds), "Multi-Playlist", shuffled)
+    }
+
+    /** Plays a whole playlist straight from the playlist list, without opening it. */
+    fun playPlaylist(playlistId: Long, shuffled: Boolean) = launchSafely {
+        val name = playlists.value.firstOrNull { it.id == playlistId }?.displayName.orEmpty()
+        play(orderedSongs(listOf(playlistId)), name, shuffled)
+    }
+
+    private fun play(songs: List<Song>, label: String, shuffled: Boolean) {
+        if (songs.isEmpty()) {
+            toast("No songs to play yet")
+            return
+        }
+        if (shuffled) playPlaylistShuffled(songs, label) else playPlaylistInOrder(songs, label)
+    }
+
+    /**
+     * Songs of [playlistIds], playlist by playlist in the order they're listed, each one sorted the
+     * way playlists are being shown - so playing in order matches what the user sees.
+     */
+    private suspend fun orderedSongs(playlistIds: List<Long>): List<Song> {
         val songs = playlistRepository.getSongsForPlaylists(playlistIds)
-        if (songs.isEmpty()) return@launchSafely
-        if (shuffled) {
-            playPlaylistShuffled(songs, "Multi-Playlist")
-        } else {
-            playPlaylistInOrder(songs, "Multi-Playlist")
+        val sort = settingsSnapshot.value.songSort
+        val listed = playlists.value.map { it.id }.filter { it in playlistIds }.ifEmpty { playlistIds }
+        return withContext(Dispatchers.Default) {
+            val byPlaylist = songs.groupBy { it.playlistId }
+            listed.flatMap { id -> sort.sort(byPlaylist[id].orEmpty()) }
         }
     }
 
     fun queueSong(song: Song) = playbackEngine.queueSong(song)
+    fun playNext(song: Song) = playbackEngine.playNext(song)
     fun togglePlayPause() = playbackEngine.togglePlayPause()
     fun skipNext() = playbackEngine.skipToNext()
     fun skipPrevious() = playbackEngine.skipToPrevious()
@@ -461,6 +530,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Called when the app leaves the foreground; stops the music if background playback is off. */
     fun onAppBackgrounded() {
+        appVisible.value = false
         if (!settingsSnapshot.value.backgroundPlayback) playbackEngine.pause()
         playbackEngine.persistNow()
     }

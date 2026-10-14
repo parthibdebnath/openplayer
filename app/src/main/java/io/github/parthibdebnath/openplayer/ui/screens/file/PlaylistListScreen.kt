@@ -4,7 +4,8 @@ import io.github.parthibdebnath.openplayer.ui.theme.LocalAppColors
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,7 +33,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -61,6 +61,9 @@ fun PlaylistListScreen(
 ) {
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val settings by viewModel.settingsSnapshot.collectAsStateWithLifecycle()
+    val playback by viewModel.playbackUiState.collectAsStateWithLifecycle()
+    val scanning by viewModel.scanning.collectAsStateWithLifecycle()
+    val playingPlaylistId = playback.currentSong?.playlistId
     val scope = rememberCoroutineScope()
 
     var pendingFolderUri by remember { mutableStateOf<android.net.Uri?>(null) }
@@ -91,7 +94,7 @@ fun PlaylistListScreen(
         val folderAwaitingName = pendingFolderUri
         if (playlistBeingRenamed != null) {
             NamingDialog(
-                title = "Name Playlist",
+                title = "Rename Playlist",
                 initialValue = playlistBeingRenamed.displayName,
                 onConfirm = { name ->
                     if (name.isNotBlank()) viewModel.renamePlaylist(playlistBeingRenamed.id, name.trim())
@@ -112,18 +115,31 @@ fun PlaylistListScreen(
         }
 
         Box(modifier = Modifier.weight(1f)) {
+            if (playlists.isEmpty()) {
+                // First run: say what a playlist is here and how to make one, instead of a blank page.
+                Text(
+                    text = "No playlists yet.\n\nTap + below and pick a folder of music - each folder becomes a playlist. " +
+                        "Your files stay where they are.",
+                    style = interTextStyle(16, bold = false),
+                    color = LocalAppColors.current.onBackground.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
             LazyColumn {
                 itemsIndexed(playlists, key = { _, playlist -> playlist.id }) { index, playlist ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 12.dp)
-                            .pointerInput(playlist.id) {
-                                detectTapGestures(
-                                    onTap = { onOpenPlaylist(playlist.id) },
-                                    onLongPress = { contextMenuPlaylistId = playlist.id },
-                                )
-                            },
+                            // combinedClickable rather than raw tap detection: it also exposes the
+                            // row's tap and long-press to TalkBack and switch access.
+                            .combinedClickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onLongClickLabel = "Playlist options",
+                                onLongClick = { contextMenuPlaylistId = playlist.id },
+                                onClick = { onOpenPlaylist(playlist.id) },
+                            ),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Box(
@@ -135,14 +151,26 @@ fun PlaylistListScreen(
                             Text(text = (index + 1).toString(), style = interTextStyle(20, bold = true), color = LocalAppColors.current.onBackground)
                         }
                         Spacer(Modifier.size(16.dp))
-                        Text(
-                            text = playlist.displayName,
-                            style = interTextStyle(20, bold = false),
-                            color = LocalAppColors.current.onBackground,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = playlist.displayName,
+                                // The playlist that's playing reads bold, so it can be found at a glance.
+                                style = interTextStyle(20, bold = playlist.id == playingPlaylistId),
+                                color = LocalAppColors.current.onBackground,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = when {
+                                    playlist.songCount == 0 && scanning -> "Scanning\u2026"
+                                    playlist.songCount == 1 -> "1 song"
+                                    else -> "${playlist.songCount} songs"
+                                } + if (playlist.id == playingPlaylistId) " \u00B7 Playing" else "",
+                                style = interTextStyle(14, bold = false),
+                                color = LocalAppColors.current.onBackground.copy(alpha = 0.55f),
+                                maxLines = 1,
+                            )
+                        }
 
                         if (contextMenuPlaylistId == playlist.id) {
                             GlassContextMenu(
@@ -150,6 +178,11 @@ fun PlaylistListScreen(
                                 onDismissRequest = { contextMenuPlaylistId = null },
                                 offset = IntOffset(0, 0),
                                 items = listOf(
+                                    // Playing straight from here saves opening the playlist first.
+                                    ContextMenuItem(label = "Play", onClick = { viewModel.playPlaylist(playlist.id, shuffled = false) }),
+                                    ContextMenuItem(label = "Shuffle", onClick = { viewModel.playPlaylist(playlist.id, shuffled = true) }),
+                                    // Picks up files added to the folder since the app was opened.
+                                    ContextMenuItem(label = "Refresh", onClick = { viewModel.rescanPlaylist(playlist.id) }),
                                     ContextMenuItem(label = "Rename", onClick = { renamingPlaylist = playlist }),
                                     ContextMenuItem(label = "Delete", destructive = true, onClick = {
                                         scope.launch {

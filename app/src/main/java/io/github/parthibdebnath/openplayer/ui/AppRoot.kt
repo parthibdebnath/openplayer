@@ -135,6 +135,7 @@ fun AppRoot(
                                 gestureType = type
                                 gesturePercent = percent
                             },
+                            onOpenLibrary = { selectedTab = 0 },
                             modifier = Modifier.fillMaxSize(),
                         )
                         2 -> SfxScreen(viewModel = viewModel, modifier = Modifier.fillMaxSize())

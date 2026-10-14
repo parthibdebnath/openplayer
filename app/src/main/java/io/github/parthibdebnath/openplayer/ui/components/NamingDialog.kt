@@ -25,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import androidx.documentfile.provider.DocumentFile
 import io.github.parthibdebnath.openplayer.ui.theme.interTextStyle
@@ -55,8 +56,16 @@ fun NamingDialog(
     initialValue: String,
     onConfirm: (String) -> Unit,
     modifier: Modifier = Modifier,
+    /** Every edit as it's typed - for search, which filters live rather than on confirm. */
+    onTextChange: (String) -> Unit = {},
 ) {
     var text by remember(initialValue) { mutableStateOf(initialValue) }
+    val focusManager = LocalFocusManager.current
+    fun confirm() {
+        // Puts the keyboard away; it otherwise stayed up over the list after confirming.
+        focusManager.clearFocus()
+        onConfirm(text)
+    }
 
     Column(
         modifier = modifier
@@ -72,9 +81,12 @@ fun NamingDialog(
         Row(verticalAlignment = Alignment.CenterVertically) {
             GlassTextField(
                 value = text,
-                onValueChange = { text = it },
+                onValueChange = {
+                    text = it
+                    onTextChange(it)
+                },
                 modifier = Modifier.weight(1f),
-                onImeAction = { onConfirm(text) },
+                onImeAction = { confirm() },
                 // Long names wrap rather than scroll out of sight, so every part of them can be
                 // seen and the caret placed anywhere.
                 maxLines = 4,
@@ -90,7 +102,7 @@ fun NamingDialog(
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                    ) { onConfirm(text) },
+                    ) { confirm() },
             )
         }
     }

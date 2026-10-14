@@ -2,6 +2,7 @@ package io.github.parthibdebnath.openplayer.data.repository
 
 import android.content.Context
 import android.net.Uri
+import java.util.concurrent.atomic.AtomicInteger
 import androidx.documentfile.provider.DocumentFile
 import io.github.parthibdebnath.openplayer.data.db.AppDatabase
 import io.github.parthibdebnath.openplayer.data.db.PlaylistEntity
@@ -14,6 +15,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
@@ -32,20 +35,27 @@ class PlaylistRepository(private val context: Context) {
     // flowOn matters here: without it the entity-to-model mapping runs on whichever dispatcher
     // collects, which is the main thread. For a playlist of a few thousand songs that's a visible
     // stall every time the screen showing it is composed.
+    //
+    // The counts come from one grouped query and are only re-published when one actually changes:
+    // filling in artists and durations after an import touches every row, but no count.
     fun observePlaylists(): Flow<List<Playlist>> =
-        playlistDao.observeAll()
-            .map { entities -> entities.map { it.toModel(songCount = 0) } }
+        combine(playlistDao.observeAll(), songDao.observeCounts()) { entities, counts ->
+            val byPlaylist = counts.associate { it.playlistId to it.songCount }
+            entities.map { it.toModel(songCount = byPlaylist[it.id] ?: 0) }
+        }
+            .distinctUntilChanged()
             .flowOn(Dispatchers.IO)
 
+    // Room re-runs this whenever any song row changes, including during another playlist's scan,
+    // so unchanged results are dropped before they reach sorting and the screen.
     fun observeSongs(playlistId: Long): Flow<List<Song>> =
         songDao.observeByPlaylist(playlistId)
             .map { list -> list.map { it.toModel() } }
+            .distinctUntilChanged()
             .flowOn(Dispatchers.IO)
 
-    fun observeSongCount(playlistId: Long): Flow<Int> = songDao.observeCountForPlaylist(playlistId)
-
     /** Songs across multiple playlists (playlist id order, then each playlist's own song order) - used for Multi-Playlist. */
-    suspend fun getSongsForPlaylists(playlistIds: List<Long>): List<io.github.parthibdebnath.openplayer.data.model.Song> =
+    suspend fun getSongsForPlaylists(playlistIds: List<Long>): List<Song> =
         withContext(Dispatchers.IO) {
             songDao.getByPlaylists(playlistIds).map { it.toModel() }
         }
@@ -88,7 +98,8 @@ class PlaylistRepository(private val context: Context) {
                 createdAt = System.currentTimeMillis(),
             ),
         )
-        scanner.rescan(id, folderUri.toString())
+        // Shown as scanning, so the new playlist reads "Scanning..." rather than "0 songs".
+        whileScanning { scanner.rescan(id, folderUri.toString()) }
         id
     }
 
@@ -109,17 +120,20 @@ class PlaylistRepository(private val context: Context) {
         playlistDao.delete(entity)
     }
 
+    private val activeScans = AtomicInteger(0)
     private val _scanning = MutableStateFlow(false)
 
     /** True while a folder is being indexed, so the UI can say so instead of showing an empty list. */
     val scanning: StateFlow<Boolean> = _scanning.asStateFlow()
 
+    // Counted rather than a plain flag: scans overlap - the launch rescan and a folder imported
+    // meanwhile - and the first to finish used to clear the flag while the other was still going.
     private suspend fun <T> whileScanning(block: suspend () -> T): T {
-        _scanning.value = true
+        synchronized(activeScans) { _scanning.value = activeScans.incrementAndGet() > 0 }
         return try {
             block()
         } finally {
-            _scanning.value = false
+            synchronized(activeScans) { _scanning.value = activeScans.decrementAndGet() > 0 }
         }
     }
 
@@ -135,17 +149,20 @@ class PlaylistRepository(private val context: Context) {
     }
 
     suspend fun renameSong(songId: Long, newDisplayName: String) = withContext(Dispatchers.IO) {
-        val song = songDao.getById(songId) ?: return@withContext
-        songDao.update(song.copy(displayName = newDisplayName))
+        songDao.updateDisplayName(songId, newDisplayName)
     }
 
-    /** Copies a user-picked file into the playlist's folder, then rescans to index it. */
-    suspend fun addSongFromDocument(playlistId: Long, sourceUri: Uri): Boolean = withContext(Dispatchers.IO) {
-        val entity = playlistDao.getById(playlistId) ?: return@withContext false
-        val root = DocumentFile.fromTreeUri(context, Uri.parse(entity.folderUri)) ?: return@withContext false
-        val copied = SafFileOperations.copyInto(context, sourceUri, root) ?: return@withContext false
-        scanner.rescan(playlistId, entity.folderUri)
-        true
+    /**
+     * Copies user-picked files into the playlist's folder, then rescans once to index them all.
+     *
+     * @return how many were copied.
+     */
+    suspend fun addSongsFromDocuments(playlistId: Long, sourceUris: List<Uri>): Int = withContext(Dispatchers.IO) {
+        val entity = playlistDao.getById(playlistId) ?: return@withContext 0
+        val root = DocumentFile.fromTreeUri(context, Uri.parse(entity.folderUri)) ?: return@withContext 0
+        val copied = sourceUris.count { SafFileOperations.copyInto(context, it, root) != null }
+        if (copied > 0) whileScanning { scanner.rescan(playlistId, entity.folderUri) }
+        copied
     }
 
     /** Moves a song's file into "<playlist folder>/removedSongs/" and rescans to drop it from the index. */

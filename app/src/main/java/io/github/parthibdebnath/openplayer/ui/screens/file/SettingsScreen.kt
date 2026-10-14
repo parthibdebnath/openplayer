@@ -68,7 +68,12 @@ private suspend fun authorizeSettingsChange(authGateManager: AuthGateManager): B
 }
 
 @Composable
-fun SettingsScreen(viewModel: MainViewModel, authGateManager: AuthGateManager, modifier: Modifier = Modifier) {
+fun SettingsScreen(
+    viewModel: MainViewModel,
+    authGateManager: AuthGateManager,
+    onOpenLicences: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val settings by viewModel.settingsSnapshot.collectAsStateWithLifecycle()
     val notificationsBlocked by viewModel.notificationsBlocked.collectAsStateWithLifecycle()
     val batteryRestricted by viewModel.batteryOptimized.collectAsStateWithLifecycle()
@@ -233,7 +238,7 @@ fun SettingsScreen(viewModel: MainViewModel, authGateManager: AuthGateManager, m
             // Fixed width: letting this size to its text made the slider beside it grow and
             // shrink as the number changed length while dragging.
             Text(
-                text = if (settings.crossfadeMs == 0) "Off" else "${settings.crossfadeMs} ms",
+                text = if (settings.crossfadeMs == 0) "Off" else "%.1f s".format(settings.crossfadeMs / 1000f),
                 style = interTextStyle(16, bold = false),
                 color = LocalAppColors.current.onBackground.copy(alpha = 0.6f),
                 textAlign = TextAlign.End,
@@ -339,6 +344,35 @@ fun SettingsScreen(viewModel: MainViewModel, authGateManager: AuthGateManager, m
                 )
             }
         }
+        Spacer(Modifier.height(34.dp))
+
+        Text(text = "About", style = interTextStyle(20, bold = true), color = LocalAppColors.current.onBackground)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = "openplayer ${viewModel.appVersion}".trim(),
+            style = interTextStyle(16, bold = false),
+            color = LocalAppColors.current.onBackground.copy(alpha = 0.6f),
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "No ads, no account, no tracking. openplayer has no internet access.",
+            style = interTextStyle(14, bold = false),
+            color = LocalAppColors.current.onBackground.copy(alpha = 0.6f),
+        )
+        Spacer(Modifier.height(12.dp))
+        Text(
+            text = "Open-source licences \u203A",
+            style = interTextStyle(16, bold = false),
+            color = LocalAppColors.current.onBackground,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 6.dp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onOpenLicences,
+                ),
+        )
         Spacer(Modifier.height(24.dp))
     }
 }

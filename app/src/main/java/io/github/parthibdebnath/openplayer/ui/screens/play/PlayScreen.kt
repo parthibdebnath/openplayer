@@ -1,6 +1,8 @@
 package io.github.parthibdebnath.openplayer.ui.screens.play
 
 import io.github.parthibdebnath.openplayer.ui.theme.LocalAppColors
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -59,6 +61,7 @@ fun PlayScreen(
     viewModel: MainViewModel,
     brightnessController: BrightnessVolumeController,
     onGestureChanged: (GestureType?, Int) -> Unit,
+    onOpenLibrary: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val playbackState by viewModel.playbackUiState.collectAsStateWithLifecycle()
@@ -164,7 +167,21 @@ fun PlayScreen(
             MarqueeText(
                 text = playbackState.currentSong?.displayName ?: "Start a playlist",
                 style = interTextStyle(20, bold = true),
-                modifier = Modifier.fillMaxWidth(0.66f),
+                modifier = Modifier
+                    .fillMaxWidth(0.66f)
+                    // With nothing loaded, the prompt itself leads to the playlists.
+                    .then(
+                        if (hasSong) {
+                            Modifier
+                        } else {
+                            Modifier.clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClickLabel = "Open playlists",
+                                onClick = onOpenLibrary,
+                            )
+                        },
+                    ),
             )
 
             if (hasSong) {

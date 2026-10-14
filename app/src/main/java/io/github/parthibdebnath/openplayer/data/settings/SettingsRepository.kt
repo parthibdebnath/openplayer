@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import io.github.parthibdebnath.openplayer.data.model.SongSort
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -72,6 +73,7 @@ data class SettingsSnapshot(
     val hideIconBackgrounds: Boolean = SettingsDefaults.HIDE_ICON_BACKGROUNDS,
     val scrollLongTitles: Boolean = SettingsDefaults.SCROLL_LONG_TITLES,
     val restartSongOnOpen: Boolean = SettingsDefaults.RESTART_SONG_ON_OPEN,
+    val songSort: SongSort = SongSort.NAME,
 )
 
 /**
@@ -98,6 +100,7 @@ class SettingsRepository(private val context: Context) {
         val HIDE_ICON_BACKGROUNDS = booleanPreferencesKey("hide_icon_backgrounds")
         val SCROLL_LONG_TITLES = booleanPreferencesKey("scroll_long_titles")
         val RESTART_SONG_ON_OPEN = booleanPreferencesKey("restart_song_on_open")
+        val SONG_SORT = stringPreferencesKey("song_sort")
 
         /** Settings that no longer exist, cleared out by [prepare]. */
         val RETIRED = listOf(booleanPreferencesKey("invert_contrast"))
@@ -128,6 +131,7 @@ class SettingsRepository(private val context: Context) {
             hideIconBackgrounds = p[Keys.HIDE_ICON_BACKGROUNDS] ?: SettingsDefaults.HIDE_ICON_BACKGROUNDS,
             scrollLongTitles = p[Keys.SCROLL_LONG_TITLES] ?: SettingsDefaults.SCROLL_LONG_TITLES,
             restartSongOnOpen = p[Keys.RESTART_SONG_ON_OPEN] ?: SettingsDefaults.RESTART_SONG_ON_OPEN,
+            songSort = SongSort.fromName(p[Keys.SONG_SORT]),
         )
     }
 
@@ -140,6 +144,7 @@ class SettingsRepository(private val context: Context) {
     val restartSongOnOpen: Flow<Boolean> =
         setting { it[Keys.RESTART_SONG_ON_OPEN] ?: SettingsDefaults.RESTART_SONG_ON_OPEN }
     val crossfadeMs: Flow<Int> = setting(::crossfadeOf)
+    val songSort: Flow<SongSort> = setting { SongSort.fromName(it[Keys.SONG_SORT]) }
 
     /**
      * Empty only until [prepare] has run once. Falling back to a freshly generated seed here
@@ -166,6 +171,7 @@ class SettingsRepository(private val context: Context) {
     suspend fun setScrollLongTitles(value: Boolean) = set(Keys.SCROLL_LONG_TITLES, value)
     suspend fun setRestartSongOnOpen(value: Boolean) = set(Keys.RESTART_SONG_ON_OPEN, value)
     suspend fun setShuffleSeed(value: String) = set(Keys.SHUFFLE_SEED, value)
+    suspend fun setSongSort(value: SongSort) = set(Keys.SONG_SORT, value.name)
 
     /**
      * Rolls a new background colour if [today] isn't the day the current one was picked. Both the

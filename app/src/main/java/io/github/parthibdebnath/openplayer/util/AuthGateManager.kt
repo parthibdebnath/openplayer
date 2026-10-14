@@ -50,6 +50,9 @@ class AuthGateManager(private val activity: FragmentActivity) {
                 .setAllowedAuthenticators(AUTHENTICATORS)
             subtitle?.let { infoBuilder.setSubtitle(it) }
             prompt.authenticate(infoBuilder.build())
+            // If whatever asked goes away first (its screen closes, the lock setting changes), the
+            // system prompt goes with it instead of lingering over the app.
+            continuation.invokeOnCancellation { runCatching { prompt.cancelAuthentication() } }
         }
     }
 

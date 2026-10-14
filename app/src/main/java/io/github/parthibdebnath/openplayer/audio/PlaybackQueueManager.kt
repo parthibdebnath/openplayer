@@ -157,6 +157,12 @@ class PlaybackQueueManager {
         changed()
     }
 
+    /** A song to play straight after the current one, ahead of anything already queued. */
+    fun playNext(song: Song) {
+        explicitQueue.add(0, song)
+        changed()
+    }
+
     /**
      * Moves on to the next song. Returns the new current song, or null if playback should stop.
      *
