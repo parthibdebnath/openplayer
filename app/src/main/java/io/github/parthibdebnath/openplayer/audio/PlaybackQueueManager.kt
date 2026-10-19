@@ -113,8 +113,13 @@ class PlaybackQueueManager {
             return
         }
         if (startIndex != null) {
-            val startSong = songs[startIndex.coerceIn(0, songs.lastIndex)]
+            val start = startIndex.coerceIn(0, songs.lastIndex)
+            val startSong = songs[start]
             current = startSong
+            // In order, the songs before the tapped one count as already played: playback carries
+            // on with the songs after it, and Previous steps back through the earlier ones.
+            // Treating them as still to come played them straight after the tapped song.
+            if (order == PlayOrder.SEQUENTIAL) history += songs.subList(0, start)
             rebuildUpcoming(shuffleSeed, excluding = setOf(startSong.id))
             return
         }
@@ -130,11 +135,21 @@ class PlaybackQueueManager {
             current?.let { add(it.id) }
             addAll(excluding)
         }
-        val remaining = pool.filter { it.id !in playedIds }
         upcoming.clear()
         upcoming += when (playOrder) {
-            PlayOrder.SEQUENTIAL -> remaining
-            PlayOrder.SHUFFLED -> remaining.shuffled(Random(shuffleSeed.hashCode().toLong()))
+            PlayOrder.SEQUENTIAL -> {
+                // Carries on from wherever the current song sits in the list, then wraps round to
+                // anything earlier that hasn't played - so switching shuffle off mid-playlist
+                // continues from here instead of jumping back to the top of the list.
+                val currentIndex = current?.let { song -> pool.indexOfFirst { it.id == song.id } } ?: -1
+                val after = ArrayList<Song>()
+                val before = ArrayList<Song>()
+                pool.forEachIndexed { index, song ->
+                    if (song.id !in playedIds) (if (index > currentIndex) after else before).add(song)
+                }
+                after + before
+            }
+            PlayOrder.SHUFFLED -> pool.filter { it.id !in playedIds }.shuffled(Random(shuffleSeed.hashCode().toLong()))
         }
         changed()
     }

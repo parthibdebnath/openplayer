@@ -26,14 +26,18 @@ data class PitchEffectState(
     val cents: Int = 0,
 )
 
+/**
+ * Defaults are the Concert preset, so switching reverb on is audible straight away. All zeros, as
+ * before, meant turning it on did nothing until several sliders had been found and moved.
+ */
 @Serializable
 data class ReverbEffectState(
     val enabled: Boolean = false,
-    val mixPercent: Int = 0,
-    val decaySeconds: Double = 0.0,
-    val preDelayMs: Int = 0,
-    val dampingPercent: Int = 0,
-    val diffusionPercent: Int = 0,
+    val mixPercent: Int = ReverbPreset.CONCERT.mix,
+    val decaySeconds: Double = ReverbPreset.CONCERT.decaySeconds,
+    val preDelayMs: Int = ReverbPreset.CONCERT.preDelayMs,
+    val dampingPercent: Int = ReverbPreset.CONCERT.dampingPercent,
+    val diffusionPercent: Int = ReverbPreset.CONCERT.diffusionPercent,
 ) {
     /** Which preset (if any) the current slider values match exactly. */
     fun matchingPreset(): ReverbPreset? = ReverbPreset.entries.find {
@@ -54,13 +58,17 @@ data class ReverbEffectState(
     }
 }
 
+/**
+ * Defaults keep the full stereo width with a moderate effect, so switching it on is audible - at
+ * zero intensity it did nothing, and at zero width it collapsed the music to mono.
+ */
 @Serializable
 data class ThreeDEffectState(
     val enabled: Boolean = false,
-    val intensityPercent: Int = 0,
-    val widthPercent: Int = 0,
+    val intensityPercent: Int = 60,
+    val widthPercent: Int = 100,
     val distancePercent: Int = 0,
-    val roomPercent: Int = 0,
+    val roomPercent: Int = 20,
     /** -100 = full left (L100) .. 0 = center .. 100 = full right (R100). */
     val centerPercent: Int = 0,
 )

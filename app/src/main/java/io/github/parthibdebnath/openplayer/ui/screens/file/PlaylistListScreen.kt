@@ -84,7 +84,7 @@ fun PlaylistListScreen(
     Box(modifier = modifier.fillMaxSize()) {
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
         Spacer(Modifier.height(24.dp))
-        Text(text = "Choose Playlist", style = interTextStyle(20, bold = true), color = LocalAppColors.current.onBackground)
+        Text(text = "Playlists", style = interTextStyle(20, bold = true), color = LocalAppColors.current.onBackground)
         Spacer(Modifier.height(16.dp))
 
         // In the column's flow, sharing its gutter, and only ever one at a time - as full-bleed
@@ -94,7 +94,7 @@ fun PlaylistListScreen(
         val folderAwaitingName = pendingFolderUri
         if (playlistBeingRenamed != null) {
             NamingDialog(
-                title = "Rename Playlist",
+                title = "Rename playlist",
                 initialValue = playlistBeingRenamed.displayName,
                 onConfirm = { name ->
                     if (name.isNotBlank()) viewModel.renamePlaylist(playlistBeingRenamed.id, name.trim())
@@ -104,7 +104,7 @@ fun PlaylistListScreen(
             )
         } else if (folderAwaitingName != null) {
             NamingDialog(
-                title = "Name Playlist",
+                title = "Name playlist",
                 initialValue = rememberFolderDisplayName(folderAwaitingName),
                 onConfirm = { name ->
                     if (name.isNotBlank()) viewModel.createPlaylist(folderAwaitingName, name.trim())
@@ -202,7 +202,7 @@ fun PlaylistListScreen(
 
         deletingPlaylistId?.let { id ->
             GlassNotification(
-                title = "Delete Playlist?",
+                title = "Delete playlist?",
                 // Says what actually happens: only the link is removed, never the files.
                 message = "It's removed from openplayer. The folder and its songs aren't touched.",
                 onConfirm = {

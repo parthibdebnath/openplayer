@@ -113,8 +113,8 @@ fun PlayScreen(
                 overlay = {
                     pendingOutputSwitch?.let { target ->
                         GlassNotification(
-                            title = "Switch Output Device?",
-                            message = "Are you sure you want to switch to ${if (target == OutputDevice.BLUETOOTH) "bluetooth" else "speaker"}?",
+                            title = "Switch output device?",
+                            message = "Play through ${if (target == OutputDevice.BLUETOOTH) "Bluetooth" else "the phone speaker"} instead?",
                             onConfirm = {
                                 viewModel.switchOutputDevice(target)
                                 pendingOutputSwitch = null
@@ -238,7 +238,7 @@ fun PlayScreen(
         // Sits between the small buttons on the left and the seek arc on the right, clear of both.
         if (settings.shuffleSeedLocked) {
             Text(
-                text = "Shuffle Locked",
+                text = "Shuffle locked",
                 style = interTextStyle(14, bold = false),
                 color = LocalAppColors.current.onBackground.copy(alpha = 0.7f),
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 18.dp),

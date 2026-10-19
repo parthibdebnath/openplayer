@@ -24,7 +24,7 @@ fun ThreeDTab(
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         ToggleRow(
-            label = "Use 3D (Spatial Audio)",
+            label = "Use 3D (spatial audio)",
             checked = state.enabled,
             onToggle = { on -> onUpdate { it.copy(enabled = on) } },
         )

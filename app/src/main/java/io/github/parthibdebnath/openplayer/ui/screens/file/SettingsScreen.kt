@@ -102,10 +102,12 @@ fun SettingsScreen(
     Column(modifier = modifier.fillMaxSize().padding(horizontal = 24.dp).verticalScroll(rememberScrollState())) {
         Spacer(Modifier.height(24.dp))
         Text(text = "Settings", style = interTextStyle(20, bold = true), color = LocalAppColors.current.onBackground)
-        Spacer(Modifier.height(34.dp))
+        Spacer(Modifier.height(24.dp))
+
+        SectionHeading("Playback")
 
         ToggleRow(
-            label = "Notification Media Control",
+            label = "Notification media controls",
             checked = settings.notificationMediaControl,
             onToggle = { viewModel.setNotificationMediaControl(it) },
             bold = false,
@@ -129,7 +131,7 @@ fun SettingsScreen(
         }
         Spacer(Modifier.height(34.dp))
         ToggleRow(
-            label = "Background Playback",
+            label = "Background playback",
             checked = settings.backgroundPlayback,
             onToggle = { viewModel.setBackgroundPlayback(it) },
             bold = false,
@@ -159,71 +161,6 @@ fun SettingsScreen(
             bold = false,
         )
         Spacer(Modifier.height(34.dp))
-        ToggleRow(
-            label = "Require Authorization to open",
-            checked = settings.requireAuthToOpen,
-            onToggle = { newValue ->
-                scope.launch {
-                    if (authorizeSettingsChange(authGateManager)) viewModel.setRequireAuthToOpen(newValue)
-                }
-            },
-            bold = false,
-        )
-        Spacer(Modifier.height(34.dp))
-        ToggleRow(
-            label = "Require Authorization to delete",
-            checked = settings.requireAuthToDelete,
-            onToggle = { newValue ->
-                scope.launch {
-                    if (authorizeSettingsChange(authGateManager)) viewModel.setRequireAuthToDelete(newValue)
-                }
-            },
-            bold = false,
-        )
-        Spacer(Modifier.height(34.dp))
-        ToggleRow(
-            label = "Two-Finger Brightness Gesture",
-            checked = settings.twoFingerBrightnessGesture,
-            onToggle = { viewModel.setTwoFingerBrightnessGesture(it) },
-            bold = false,
-        )
-        Spacer(Modifier.height(34.dp))
-        ToggleRow(
-            label = "Three-Finger Volume Gesture",
-            checked = settings.threeFingerVolumeGesture,
-            onToggle = { viewModel.setThreeFingerVolumeGesture(it) },
-            bold = false,
-        )
-        Spacer(Modifier.height(34.dp))
-        ToggleRow(
-            label = "Glass theming",
-            checked = settings.glassTheming,
-            onToggle = { viewModel.setGlassTheming(it) },
-            bold = false,
-        )
-        Spacer(Modifier.height(34.dp))
-        ToggleRow(
-            label = "Hide icon backgrounds",
-            checked = settings.hideIconBackgrounds,
-            onToggle = { viewModel.setHideIconBackgrounds(it) },
-            bold = false,
-        )
-        Spacer(Modifier.height(34.dp))
-        ToggleRow(
-            label = "Scroll long titles",
-            checked = settings.scrollLongTitles,
-            onToggle = { viewModel.setScrollLongTitles(it) },
-            bold = false,
-        )
-        Spacer(Modifier.height(34.dp))
-        ToggleRow(
-            label = "24-Hour Clock",
-            checked = settings.twentyFourHourClock,
-            onToggle = { viewModel.setTwentyFourHourClock(it) },
-            bold = false,
-        )
-        Spacer(Modifier.height(34.dp))
-
         Text(text = "Crossfade", style = interTextStyle(20, bold = false), color = LocalAppColors.current.onBackground)
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -247,6 +184,77 @@ fun SettingsScreen(
             )
         }
         Spacer(Modifier.height(34.dp))
+
+        SectionHeading("Privacy")
+        ToggleRow(
+            label = "Require authorization to open",
+            checked = settings.requireAuthToOpen,
+            onToggle = { newValue ->
+                scope.launch {
+                    if (authorizeSettingsChange(authGateManager)) viewModel.setRequireAuthToOpen(newValue)
+                }
+            },
+            bold = false,
+        )
+        Spacer(Modifier.height(34.dp))
+        ToggleRow(
+            label = "Require authorization to delete",
+            checked = settings.requireAuthToDelete,
+            onToggle = { newValue ->
+                scope.launch {
+                    if (authorizeSettingsChange(authGateManager)) viewModel.setRequireAuthToDelete(newValue)
+                }
+            },
+            bold = false,
+        )
+        Spacer(Modifier.height(34.dp))
+
+        SectionHeading("Gestures")
+        ToggleRow(
+            label = "Two-finger brightness gesture",
+            checked = settings.twoFingerBrightnessGesture,
+            onToggle = { viewModel.setTwoFingerBrightnessGesture(it) },
+            bold = false,
+        )
+        Spacer(Modifier.height(34.dp))
+        ToggleRow(
+            label = "Three-finger volume gesture",
+            checked = settings.threeFingerVolumeGesture,
+            onToggle = { viewModel.setThreeFingerVolumeGesture(it) },
+            bold = false,
+        )
+        Spacer(Modifier.height(34.dp))
+
+        SectionHeading("Appearance")
+        ToggleRow(
+            label = "Glass theming",
+            checked = settings.glassTheming,
+            onToggle = { viewModel.setGlassTheming(it) },
+            bold = false,
+        )
+        Spacer(Modifier.height(34.dp))
+        ToggleRow(
+            label = "Hide icon backgrounds",
+            checked = settings.hideIconBackgrounds,
+            onToggle = { viewModel.setHideIconBackgrounds(it) },
+            bold = false,
+        )
+        Spacer(Modifier.height(34.dp))
+        ToggleRow(
+            label = "Scroll long titles",
+            checked = settings.scrollLongTitles,
+            onToggle = { viewModel.setScrollLongTitles(it) },
+            bold = false,
+        )
+        Spacer(Modifier.height(34.dp))
+        ToggleRow(
+            label = "24-hour clock",
+            checked = settings.twentyFourHourClock,
+            onToggle = { viewModel.setTwentyFourHourClock(it) },
+            bold = false,
+        )
+        Spacer(Modifier.height(34.dp))
+
 
         Column(
             modifier = Modifier
@@ -346,8 +354,7 @@ fun SettingsScreen(
         }
         Spacer(Modifier.height(34.dp))
 
-        Text(text = "About", style = interTextStyle(20, bold = true), color = LocalAppColors.current.onBackground)
-        Spacer(Modifier.height(8.dp))
+        SectionHeading("About")
         Text(
             text = "openplayer ${viewModel.appVersion}".trim(),
             style = interTextStyle(16, bold = false),
@@ -375,4 +382,15 @@ fun SettingsScreen(
         )
         Spacer(Modifier.height(24.dp))
     }
+}
+
+/** Groups the settings list, which had grown into one long run of toggles. */
+@Composable
+private fun SectionHeading(title: String) {
+    Text(
+        text = title.uppercase(),
+        style = interTextStyle(13, bold = true),
+        color = LocalAppColors.current.onBackground.copy(alpha = 0.5f),
+    )
+    Spacer(Modifier.height(18.dp))
 }

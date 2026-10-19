@@ -10,7 +10,12 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import io.github.parthibdebnath.openplayer.ui.theme.interTextStyle
@@ -30,11 +35,26 @@ fun ToggleRow(
     iconSize: androidx.compose.ui.unit.Dp = 30.dp,
 ) {
     Row(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            // The whole row toggles, not just the small icon - and reads to TalkBack as one switch.
+            .toggleable(
+                value = checked,
+                onValueChange = onToggle,
+                role = Role.Switch,
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+            ),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text = label, style = interTextStyle(fontSizeSp, bold = bold), color = LocalAppColors.current.onBackground)
+        // Weighted, so a long label wraps instead of pushing the toggle off the edge.
+        Text(
+            text = label,
+            style = interTextStyle(fontSizeSp, bold = bold),
+            color = LocalAppColors.current.onBackground,
+            modifier = Modifier.weight(1f).padding(end = 12.dp),
+        )
         GlassIconButton(
             icon = if (checked) Icons.Filled.Check else Icons.Filled.Close,
             contentDescription = "$label: ${if (checked) "on" else "off"}",

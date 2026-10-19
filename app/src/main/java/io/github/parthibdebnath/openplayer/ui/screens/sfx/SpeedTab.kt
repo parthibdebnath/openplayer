@@ -43,10 +43,10 @@ fun SpeedTab(
     val currentIndex = speedIndexOf(state.speed)
 
     Column(modifier = modifier.fillMaxWidth()) {
-        ToggleRow(label = "Change Speed", checked = state.enabled, onToggle = { on -> onUpdate { it.copy(enabled = on) } })
+        ToggleRow(label = "Change speed", checked = state.enabled, onToggle = { on -> onUpdate { it.copy(enabled = on) } })
         Spacer(Modifier.height(20.dp))
         ToggleRow(
-            label = "Preserve Pitch",
+            label = "Preserve pitch",
             checked = state.preservePitch,
             onToggle = { on -> onUpdate { it.copy(preservePitch = on) } },
             bold = false,

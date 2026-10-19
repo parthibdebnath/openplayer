@@ -176,7 +176,7 @@ fun PlaylistSongsScreen(
         val songBeingRenamed = renamingSong
         if (songBeingRenamed != null) {
             NamingDialog(
-                title = "Rename Song",
+                title = "Rename song",
                 initialValue = songBeingRenamed.displayName,
                 onConfirm = { name ->
                     if (name.isNotBlank()) viewModel.renameSong(songBeingRenamed.id, name.trim())

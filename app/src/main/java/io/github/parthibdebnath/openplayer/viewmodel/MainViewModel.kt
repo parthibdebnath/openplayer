@@ -120,7 +120,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * rather than a silent force-close.
      */
     private val mutationExceptionHandler = CoroutineExceptionHandler { _, throwable ->
-        Log.e("MainViewModel", "File/playlist operation failed", throwable)
+        Log.e("MainViewModel", "Background operation failed", throwable)
     }
 
     /**
@@ -374,7 +374,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun setSongSort(sort: SongSort) = viewModelScope.launch { settingsRepository.setSongSort(sort) }
+    fun setSongSort(sort: SongSort) = launchSafely { settingsRepository.setSongSort(sort) }
 
     // --- Opening a file from another app ------------------------------------------------------
 
@@ -418,7 +418,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Each press produces a genuinely new shuffle - unless the seed is locked, which is the point of locking it. */
-    fun playPlaylistShuffled(songs: List<Song>, label: String) = viewModelScope.launch {
+    fun playPlaylistShuffled(songs: List<Song>, label: String) = launchSafely {
         if (!settingsSnapshot.value.shuffleSeedLocked) {
             playbackEngine.setShuffleSeed(settingsRepository.regenerateShuffleSeed())
         }
@@ -490,36 +490,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- Shuffle seed (settings) -------------------------------------------------------------
 
-    fun setShuffleSeedText(seed: String) = viewModelScope.launch {
+    fun setShuffleSeedText(seed: String) = launchSafely {
         settingsRepository.setShuffleSeed(seed)
     }
 
-    fun refreshShuffleSeed() = viewModelScope.launch {
+    fun refreshShuffleSeed() = launchSafely {
         val newSeed = settingsRepository.regenerateShuffleSeed()
         playbackEngine.refreshShuffleSeed(newSeed)
     }
 
-    fun setShuffleSeedLocked(locked: Boolean) = viewModelScope.launch {
+    fun setShuffleSeedLocked(locked: Boolean) = launchSafely {
         settingsRepository.setShuffleSeedLocked(locked)
     }
 
     // --- Settings toggles ----------------------------------------------------------------
 
-    fun setNotificationMediaControl(value: Boolean) = viewModelScope.launch { settingsRepository.setNotificationMediaControl(value) }
-    fun setRequireAuthToOpen(value: Boolean) = viewModelScope.launch { settingsRepository.setRequireAuthToOpen(value) }
-    fun setRequireAuthToDelete(value: Boolean) = viewModelScope.launch { settingsRepository.setRequireAuthToDelete(value) }
-    fun setTwoFingerBrightnessGesture(value: Boolean) = viewModelScope.launch { settingsRepository.setTwoFingerBrightnessGesture(value) }
-    fun setThreeFingerVolumeGesture(value: Boolean) = viewModelScope.launch { settingsRepository.setThreeFingerVolumeGesture(value) }
-    fun setGlassTheming(value: Boolean) = viewModelScope.launch { settingsRepository.setGlassTheming(value) }
-    fun setTwentyFourHourClock(value: Boolean) = viewModelScope.launch { settingsRepository.setTwentyFourHourClock(value) }
-    fun setCrossfadeMs(value: Int) = viewModelScope.launch { settingsRepository.setCrossfadeMs(value) }
-    fun setBackgroundPlayback(value: Boolean) = viewModelScope.launch { settingsRepository.setBackgroundPlayback(value) }
-    fun setBackgroundColorHex(value: String) = viewModelScope.launch { settingsRepository.setBackgroundColorHex(value) }
-    fun setHideIconBackgrounds(value: Boolean) = viewModelScope.launch { settingsRepository.setHideIconBackgrounds(value) }
-    fun setScrollLongTitles(value: Boolean) = viewModelScope.launch { settingsRepository.setScrollLongTitles(value) }
-    fun setRestartSongOnOpen(value: Boolean) = viewModelScope.launch { settingsRepository.setRestartSongOnOpen(value) }
+    fun setNotificationMediaControl(value: Boolean) = launchSafely { settingsRepository.setNotificationMediaControl(value) }
+    fun setRequireAuthToOpen(value: Boolean) = launchSafely { settingsRepository.setRequireAuthToOpen(value) }
+    fun setRequireAuthToDelete(value: Boolean) = launchSafely { settingsRepository.setRequireAuthToDelete(value) }
+    fun setTwoFingerBrightnessGesture(value: Boolean) = launchSafely { settingsRepository.setTwoFingerBrightnessGesture(value) }
+    fun setThreeFingerVolumeGesture(value: Boolean) = launchSafely { settingsRepository.setThreeFingerVolumeGesture(value) }
+    fun setGlassTheming(value: Boolean) = launchSafely { settingsRepository.setGlassTheming(value) }
+    fun setTwentyFourHourClock(value: Boolean) = launchSafely { settingsRepository.setTwentyFourHourClock(value) }
+    fun setCrossfadeMs(value: Int) = launchSafely { settingsRepository.setCrossfadeMs(value) }
+    fun setBackgroundPlayback(value: Boolean) = launchSafely { settingsRepository.setBackgroundPlayback(value) }
+    fun setBackgroundColorHex(value: String) = launchSafely { settingsRepository.setBackgroundColorHex(value) }
+    fun setHideIconBackgrounds(value: Boolean) = launchSafely { settingsRepository.setHideIconBackgrounds(value) }
+    fun setScrollLongTitles(value: Boolean) = launchSafely { settingsRepository.setScrollLongTitles(value) }
+    fun setRestartSongOnOpen(value: Boolean) = launchSafely { settingsRepository.setRestartSongOnOpen(value) }
 
-    fun setDailyRandomBackground(value: Boolean) = viewModelScope.launch {
+    fun setDailyRandomBackground(value: Boolean) = launchSafely {
         settingsRepository.setDailyRandomBackground(value)
         // Turning it on takes effect immediately rather than at the next midnight.
         if (value) settingsRepository.applyDailyRandomColorIfDue(todayStamp())
@@ -544,12 +544,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun updateReverb(transform: (ReverbEffectState) -> ReverbEffectState) = updateEffects { it.copy(reverb = transform(it.reverb)) }
     fun updateThreeD(transform: (ThreeDEffectState) -> ThreeDEffectState) = updateEffects { it.copy(threeD = transform(it.threeD)) }
 
+    /** Puts one effect's settings back to their defaults, leaving it switched on or off as it was. */
+    fun resetSpeed() = updateSpeed { SpeedEffectState(enabled = it.enabled) }
+    fun resetPitch() = updatePitch { PitchEffectState(enabled = it.enabled) }
+    fun resetReverb() = updateReverb { ReverbEffectState(enabled = it.enabled) }
+    fun resetThreeD() = updateThreeD { ThreeDEffectState(enabled = it.enabled) }
+
     fun applyReverbPreset(preset: ReverbPreset) = updateEffects {
         it.copy(reverb = ReverbEffectState.fromPreset(preset, enabled = it.reverb.enabled))
     }
 
-    private fun updateEffects(transform: (EffectsState) -> EffectsState) = viewModelScope.launch {
-        effectsRepository.update(transform)
+    private fun updateEffects(transform: (EffectsState) -> EffectsState) = launchSafely {
+        effectsRepository.update { old ->
+            val new = transform(old)
+            // Switching an effect on with "All effects" off did nothing audible, with no hint as
+            // to why. Turning one on now switches the master on too.
+            val turnedOn = (!old.speed.enabled && new.speed.enabled) || (!old.pitch.enabled && new.pitch.enabled) ||
+                (!old.reverb.enabled && new.reverb.enabled) || (!old.threeD.enabled && new.threeD.enabled)
+            if (turnedOn && !new.globalEnabled) new.copy(globalEnabled = true) else new
+        }
     }
 
     // --- Sleep timer -------------------------------------------------------------------------

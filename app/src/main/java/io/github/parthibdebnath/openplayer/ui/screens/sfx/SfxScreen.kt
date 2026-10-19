@@ -1,5 +1,7 @@
 package io.github.parthibdebnath.openplayer.ui.screens.sfx
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -9,7 +11,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -17,6 +21,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import io.github.parthibdebnath.openplayer.ui.theme.LocalAppColors
+import io.github.parthibdebnath.openplayer.ui.theme.interTextStyle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.parthibdebnath.openplayer.ui.components.GlassPillSwitcher
 import io.github.parthibdebnath.openplayer.ui.components.NonHomePlayerBar
@@ -60,9 +66,29 @@ fun SfxScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                     )
                     3 -> ThreeDTab(state = effects.threeD, onUpdate = { viewModel.updateThreeD(it) })
                 }
+                Spacer(Modifier.height(20.dp))
+                Text(
+                    text = "Reset ${TAB_LABELS[selectedTab].lowercase()} to default",
+                    style = interTextStyle(16, bold = false),
+                    color = LocalAppColors.current.onBackground.copy(alpha = 0.6f),
+                    modifier = Modifier
+                        .padding(vertical = 6.dp)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ) {
+                            when (selectedTab) {
+                                0 -> viewModel.resetSpeed()
+                                1 -> viewModel.resetPitch()
+                                2 -> viewModel.resetReverb()
+                                3 -> viewModel.resetThreeD()
+                            }
+                        },
+                )
+                Spacer(Modifier.height(12.dp))
             }
             ToggleRow(
-                label = "All Effects",
+                label = "All effects",
                 checked = effects.globalEnabled,
                 onToggle = { viewModel.setGlobalEffectsEnabled(it) },
             )

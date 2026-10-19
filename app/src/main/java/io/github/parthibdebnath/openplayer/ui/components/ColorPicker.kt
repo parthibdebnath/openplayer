@@ -4,7 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -23,12 +23,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
@@ -141,6 +143,7 @@ fun ColorPicker(
 @Composable
 private fun HueStrip(hue: Float, onHueChange: (Float) -> Unit) {
     var widthPx by remember { mutableFloatStateOf(1f) }
+    val currentOnHueChange by rememberUpdatedState(onHueChange)
     val markerColor = LocalAppColors.current.onBackground
 
     Box(
@@ -151,12 +154,13 @@ private fun HueStrip(hue: Float, onHueChange: (Float) -> Unit) {
             .background(Brush.horizontalGradient(HUE_COLORS))
             .onGloballyPositioned { widthPx = it.size.width.toFloat().coerceAtLeast(1f) }
             .pointerInput(Unit) {
-                detectTapGestures { offset -> onHueChange((offset.x / widthPx).coerceIn(0f, 1f) * 360f) }
+                detectTapGestures { offset -> currentOnHueChange((offset.x / widthPx).coerceIn(0f, 1f) * 360f) }
             }
+            // Horizontal only, so a vertical swipe starting on the strip still scrolls the page.
             .pointerInput(Unit) {
-                detectDragGestures { change, _ ->
+                detectHorizontalDragGestures { change, _ ->
                     change.consume()
-                    onHueChange((change.position.x / widthPx).coerceIn(0f, 1f) * 360f)
+                    currentOnHueChange((change.position.x / widthPx).coerceIn(0f, 1f) * 360f)
                 }
             },
     ) {
@@ -178,15 +182,10 @@ private fun Color.toHsv(): FloatArray {
     return out
 }
 
-private fun Color.toArgb(): Int = android.graphics.Color.argb(
-    (alpha * 255).toInt(),
-    (red * 255).toInt(),
-    (green * 255).toInt(),
-    (blue * 255).toInt(),
-)
-
 private fun hsvColor(hue: Float, saturation: Float, value: Float): Color =
     Color(android.graphics.Color.HSVToColor(floatArrayOf(hue.coerceIn(0f, 360f), saturation.coerceIn(0f, 1f), value.coerceIn(0f, 1f))))
 
 /** `#RRGGBB` for a colour, as the hex field expects it. */
-fun Color.toHexString(): String = String.format("#%06X", toArgb() and 0xFFFFFF)
+// Locale.US: in locales with their own digits, the default produced a code the hex parser
+// rejects, and the background silently fell back to black.
+fun Color.toHexString(): String = String.format(java.util.Locale.US, "#%06X", toArgb() and 0xFFFFFF)

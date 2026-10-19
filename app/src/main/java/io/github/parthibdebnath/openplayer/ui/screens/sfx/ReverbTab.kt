@@ -33,7 +33,7 @@ fun ReverbTab(
     val selectedPresetIndex = presets.indexOf(state.matchingPreset())
 
     Column(modifier = modifier.fillMaxWidth()) {
-        ToggleRow(label = "Use Reverb", checked = state.enabled, onToggle = { on -> onUpdate { it.copy(enabled = on) } })
+        ToggleRow(label = "Use reverb", checked = state.enabled, onToggle = { on -> onUpdate { it.copy(enabled = on) } })
         Spacer(Modifier.height(16.dp))
         GlassPillSwitcher(
             items = presets.map { it.name.lowercase().replaceFirstChar(Char::uppercase) },
@@ -67,7 +67,7 @@ fun ReverbTab(
                 modifier = Modifier.weight(1f),
             )
             EffectSlider(
-                label = "Pre-Delay",
+                label = "Pre-delay",
                 valueText = "${state.preDelayMs}ms",
                 sliderValue = state.preDelayMs.toFloat(),
                 onSliderValueChange = { v -> onUpdate { it.copy(preDelayMs = v.roundToInt()) } },

@@ -4,6 +4,7 @@ import android.Manifest
 import android.os.Build
 import android.content.Intent
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.activity.enableEdgeToEdge
@@ -17,7 +18,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,7 +75,32 @@ class MainActivity : FragmentActivity() {
                         scope.launch { unlocked = authGateManager.authenticate(UNLOCK_PROMPT) }
                     }
 
-                    LaunchedEffect(requireAuth) {
+                    // Coming back after a while counts as opening the app again: with the lock on, it
+                    // locks once the app has been in the background longer than a short grace
+                    // period, rather than only on a cold start. The grace period covers quick trips
+                    // out, such as to the folder picker.
+                    var lockGeneration by remember { mutableIntStateOf(0) }
+                    val lifecycleOwner = LocalLifecycleOwner.current
+                    DisposableEffect(lifecycleOwner) {
+                        var stoppedAt = 0L
+                        val observer = LifecycleEventObserver { _, event ->
+                            when (event) {
+                                Lifecycle.Event.ON_STOP -> stoppedAt = SystemClock.elapsedRealtime()
+                                Lifecycle.Event.ON_START -> {
+                                    val away = SystemClock.elapsedRealtime() - stoppedAt
+                                    if (requireAuth == true && unlocked && stoppedAt != 0L && away > RELOCK_AFTER_MS) {
+                                        unlocked = false
+                                        lockGeneration++
+                                    }
+                                }
+                                else -> Unit
+                            }
+                        }
+                        lifecycleOwner.lifecycle.addObserver(observer)
+                        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+                    }
+
+                    LaunchedEffect(requireAuth, lockGeneration) {
                         when (requireAuth) {
                             null -> Unit // not read yet - stay on the blank screen below
                             false -> unlocked = true
@@ -130,6 +161,7 @@ class MainActivity : FragmentActivity() {
 
     private companion object {
         const val UNLOCK_PROMPT = "Unlock openplayer"
+        const val RELOCK_AFTER_MS = 2 * 60 * 1000L
     }
 }
 

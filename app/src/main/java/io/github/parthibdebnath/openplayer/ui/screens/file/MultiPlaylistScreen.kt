@@ -62,7 +62,7 @@ fun MultiPlaylistScreen(
     Box(modifier = modifier.fillMaxSize()) {
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
         Spacer(Modifier.height(24.dp))
-        Text(text = "Play from multiple Playlists", style = interTextStyle(20, bold = true), color = LocalAppColors.current.onBackground)
+        Text(text = "Play from multiple playlists", style = interTextStyle(20, bold = true), color = LocalAppColors.current.onBackground)
         Spacer(Modifier.height(16.dp))
 
         Box(modifier = Modifier.weight(1f)) {
@@ -109,7 +109,7 @@ fun MultiPlaylistScreen(
         }
         // Below the list rather than laid over its bottom edge, where it covered the last rows.
         Text(
-            text = "Select All/None",
+            text = "Select all / none",
             style = interTextStyle(20, bold = true),
             color = LocalAppColors.current.onBackground,
             modifier = Modifier
@@ -173,7 +173,7 @@ fun MultiPlaylistScreen(
     pendingFolderUri?.let { uri ->
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             NamingDialog(
-                title = "Name Playlist",
+                title = "Name playlist",
                 initialValue = rememberFolderDisplayName(uri),
                 onConfirm = { name ->
                     if (name.isNotBlank()) viewModel.createPlaylist(uri, name.trim())

@@ -22,7 +22,7 @@ fun PitchTab(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
-        ToggleRow(label = "Shift Pitch", checked = state.enabled, onToggle = { on -> onUpdate { it.copy(enabled = on) } })
+        ToggleRow(label = "Shift pitch", checked = state.enabled, onToggle = { on -> onUpdate { it.copy(enabled = on) } })
         Spacer(Modifier.height(24.dp))
         EffectSlider(
             label = "Semitones",
@@ -36,7 +36,7 @@ fun PitchTab(
         )
         Spacer(Modifier.height(24.dp))
         EffectSlider(
-            label = "Fine Tuning",
+            label = "Fine tuning",
             valueText = "${signed(state.cents)} cents",
             sliderValue = state.cents.toFloat(),
             onSliderValueChange = { v -> onUpdate { it.copy(cents = v.roundToInt()) } },

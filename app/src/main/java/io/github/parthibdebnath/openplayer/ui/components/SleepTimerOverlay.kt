@@ -52,7 +52,7 @@ fun SleepTimerOverlay(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(text = "Sleep Timer", style = interTextStyle(20, bold = true), color = LocalAppColors.current.onBackground)
+            Text(text = "Sleep timer", style = interTextStyle(20, bold = true), color = LocalAppColors.current.onBackground)
             GlassIconButton(
                 icon = Icons.Filled.RestartAlt,
                 contentDescription = "Dismiss without setting a timer",

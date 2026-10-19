@@ -255,8 +255,11 @@ class PlaybackEngine private constructor(context: Context) {
                     // Back to normal for whenever play is pressed next.
                     applyRepeatModeToPlayer()
                     syncUpcomingWindow()
+                } else if (!hasNextSong()) {
+                    stopAtEndOfQueue()
                 } else {
-                    advanceAndPlayNext()
+                    // A song that played to its end was playing, so the next one plays too.
+                    advanceTo(autoPlay = true)
                 }
             }
             syncState()
@@ -551,16 +554,32 @@ class PlaybackEngine private constructor(context: Context) {
     }
 
     fun playSpecificSong(songs: List<Song>, label: String, song: Song) {
+        // Tapping the song that's already loaded carries on with it rather than starting it over.
+        if (queueManager.current?.id == song.id && queueManager.playlistLabel == label) {
+            if (!player.playWhenReady) play()
+            return
+        }
         val index = songs.indexOfFirst { it.id == song.id }.coerceAtLeast(0)
-        playSongs(songs, label, PlayOrder.SEQUENTIAL, startIndex = index)
+        // Keeps whichever order is in use: with shuffle on, the tapped song plays and the rest
+        // follow shuffled. Always starting in order switched shuffle off on every tap.
+        playSongs(songs, label, queueManager.playOrder, startIndex = index)
     }
 
     fun togglePlayPause() {
         // play() only sets playWhenReady; in STATE_IDLE - where any earlier failure left the
         // player - it has no effect at all until the player is prepared again, which is what
         // [play] handles.
-        if (player.isPlaying) pause() else play()
+        if (isPlayingOrAboutTo()) pause() else play()
     }
+
+    /**
+     * Playing, or buffering on the way to it. The play/pause button follows this rather than
+     * isPlaying, which drops to false for a moment whenever a new song or a seek buffers - the
+     * button flickered to "play" on every skip, and a tap in that moment played instead of paused.
+     */
+    private fun isPlayingOrAboutTo(): Boolean =
+        player.playWhenReady &&
+            (player.playbackState == Player.STATE_READY || player.playbackState == Player.STATE_BUFFERING)
 
     /** Resumes playback, re-preparing first if an earlier failure left the player idle. */
     fun play() {
@@ -569,6 +588,8 @@ class PlaybackEngine private constructor(context: Context) {
             retriesForCurrentItem = 0
             runCatching { player.prepare() }
         }
+        // An ended player ignores play() until it's moved back into the song.
+        if (player.playbackState == Player.STATE_ENDED) runCatching { player.seekTo(0) }
         player.play()
         // Both halves of an interrupted overlap resume together.
         if (fadeProgress != null) standby.player.play()
@@ -777,7 +798,7 @@ class PlaybackEngine private constructor(context: Context) {
         val currentGone = queueManager.current?.let(predicate) == true
         queueManager.removeSongs(predicate)
         if (currentGone) {
-            val wasPlaying = slots.any { it.player.isPlaying }
+            val wasPlaying = shouldKeepPlaying()
             cancelCrossfade()
             loadAndPlay(queueManager.dropCurrent(), autoPlay = wasPlaying)
         } else {
@@ -792,12 +813,29 @@ class PlaybackEngine private constructor(context: Context) {
         syncState()
     }
 
+    /**
+     * Whether playback is meant to be running - true while buffering towards playing, too. Track
+     * changes carry this over: skipping while paused shows the new song but stays paused, rather
+     * than starting the music on its own.
+     */
+    private fun shouldKeepPlaying(): Boolean = player.playWhenReady
+
+    /** Whether there's anything after the current song, counting a repeat-all wrap. */
+    private fun hasNextSong(): Boolean =
+        queueManager.peekNext() != null ||
+            (queueManager.repeatMode == RepeatMode.ALL && queueManager.hasActiveSource())
+
     fun skipToNext() {
+        // At the end of the queue there's nowhere to go. Moving on anyway used to clear the player
+        // entirely, losing the song and leaving nothing to press play on.
+        if (queueManager.current != null && !hasNextSong()) return
+        val keepPlaying = shouldKeepPlaying()
         cancelCrossfade()
-        advanceAndPlayNext()
+        advanceTo(autoPlay = keepPlaying)
     }
 
     fun skipToPrevious() {
+        val keepPlaying = shouldKeepPlaying()
         cancelCrossfade()
         // Restart current song if we're more than a couple seconds in, matching common player UX;
         // otherwise go back in history.
@@ -806,7 +844,20 @@ class PlaybackEngine private constructor(context: Context) {
             return
         }
         val previous = queueManager.goToPrevious()
-        loadAndPlay(previous, autoPlay = true)
+        loadAndPlay(previous, autoPlay = keepPlaying)
+    }
+
+    /**
+     * The last song of the queue has finished: stay on it, rewound and paused, so it can be played
+     * again. Clearing the player here left the Play screen empty, as though nothing had been
+     * started.
+     */
+    private fun stopAtEndOfQueue() {
+        pause()
+        runCatching { player.seekTo(0) }
+        // Nothing more is coming, so other apps can have the audio back.
+        focusController.abandonFocus()
+        syncState()
     }
 
     fun queueSong(song: Song) {
@@ -893,9 +944,9 @@ class PlaybackEngine private constructor(context: Context) {
         syncState()
     }
 
-    private fun advanceAndPlayNext() {
+    private fun advanceTo(autoPlay: Boolean) {
         val next = queueManager.advanceToNext(currentShuffleSeed)
-        loadAndPlay(next, autoPlay = true)
+        loadAndPlay(next, autoPlay = autoPlay)
     }
 
     private fun loadAndPlay(song: Song?, autoPlay: Boolean = true) {
@@ -1023,9 +1074,12 @@ class PlaybackEngine private constructor(context: Context) {
         _uiState.value = PlaybackUiState(
             currentSong = queueManager.current,
             playlistLabel = queueManager.playlistLabel,
-            isPlaying = player.isPlaying,
+            isPlaying = isPlayingOrAboutTo(),
             positionMs = player.currentPosition.coerceAtLeast(0),
-            durationMs = player.duration.coerceAtLeast(0),
+            // The library's stored length stands in until the player has read the file itself,
+            // so a restored or just-loaded song doesn't read 0:00 / 0:00.
+            durationMs = player.duration.takeIf { it > 0 }
+                ?: queueManager.current?.durationMs?.coerceAtLeast(0) ?: 0L,
             repeatMode = queueManager.repeatMode,
             shuffleOn = queueManager.playOrder == PlayOrder.SHUFFLED,
             upcoming = queueManager.visibleUpcoming(),
