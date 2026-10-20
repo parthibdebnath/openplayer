@@ -39,7 +39,7 @@ fun GlassIconButton(
     Box(
         modifier = modifier
             .size(circleSize)
-            .glassSurface(shape = CircleShape, opacity = opacity, hideable = true)
+            .glassSurface(shape = CircleShape, opacity = opacity, hideable = true, role = GlassRole.Control)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,

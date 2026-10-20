@@ -80,7 +80,7 @@ fun GlassNotification(
                     },
                 )
             }
-            .glassSurface(shape = RoundedCornerShape(10.dp))
+            .glassSurface(shape = RoundedCornerShape(10.dp), role = GlassRole.Floating)
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

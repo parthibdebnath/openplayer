@@ -49,9 +49,10 @@ import android.graphics.Shader as PlatformShader
  *  - Refraction. Light bends through the curved rim, so whatever is behind the edge is pulled in
  *    and distorted, with the colours splitting slightly the way a prism splits them. The flat
  *    middle shows what's behind it almost undisturbed.
- *  - A lit bevel. The rim catches light from above-left: a thin bright specular line along the
- *    edges that face it, a fainter one on the far side, and a soft glow across the curve.
- *  - Depth. The body is faintly brighter at the top than the bottom.
+ *  - Light at the edge, and only there. The rim catches light from the top-left corner: a hairline
+ *    specular arc where it faces the light and a fainter one on the opposite corner. The face
+ *    stays clear - no glow, no sheen - which is the difference between glass and a bubble.
+ *  - Thickness. A thin band just inside the rim sits a touch darker than the face.
  *
  * Everything is drawn by one AGSL shader working from the shape's signed distance field, so the
  * bevel follows any corner radius exactly. Glass that floats over the screen (the tab bar, the
@@ -124,25 +125,24 @@ half4 main(float2 coord) {
     }
     col = mix(col, tint.rgb, tint.a);
 
-    // A slight top-to-bottom falloff gives the slab depth.
-    col += half3((0.5 - (p.y + halfSize.y) / glassSize.y) * 0.05);
-
+    // Light, not glow. Glass is clear, so all that shows on a plain background is where its edge
+    // catches light: a hairline specular arc on the corner facing the light, a fainter one on the
+    // opposite corner where light leaves the glass, and next to nothing elsewhere. A soft glow
+    // round the whole rim, or a sheen across the curve, is what makes glass read as a bubble.
     float facing = dot(n, normalize(light));
-    float lit = max(facing, 0.0);
-    float far = max(-facing, 0.0);
-    // A crisp line right on the rim, all the way round: brightest where it faces the light, and
-    // bright again on the far side, where light that entered the glass leaves it.
-    float rim = smoothstep(1.8, 0.0, inset);
-    float rimLight = rim * (0.28 + 0.72 * pow(lit, 1.5) + 0.55 * pow(far, 2.0)) * highlight;
-    // A soft reflection band along the lit side of the bevel.
-    float band = smoothstep(bezel * 0.75, 0.0, inset) * pow(lit, 3.0) * highlight * 0.32;
-    // Fresnel: glass reflects more the more obliquely it's seen, so the curve brightens towards
-    // the edge all round.
-    float fresnel = t * t * t * highlight * 0.16;
-    col += half3(rimLight + band + fresnel);
-    // On light backgrounds a white rim disappears, so the side away from the light darkens.
-    col -= half3(rim * far * shade * 0.35 + t * t * far * shade * 0.08);
-    alpha = clamp(alpha + rimLight * 0.9 + band * 0.7 + fresnel * 0.6 + rim * far * shade * 0.3, 0.0, 1.0);
+    float rim = smoothstep(1.2, 0.0, inset);
+    float lit = pow(max(facing, 0.0), 6.0);
+    float far = pow(max(-facing, 0.0), 8.0);
+    float spec = rim * (lit + far * 0.45) * highlight;
+    // A hairline all the way round, just enough for the shape to read.
+    float hair = rim * 0.10 * highlight;
+    // Thickness: just inside the rim the glass bends the darker surroundings in, so a thin band
+    // there sits a touch darker than the face.
+    float inner = smoothstep(bezel * 0.5, 0.0, inset) * (1.0 - rim) * 0.05;
+    col = col * (1.0 - inner) + half3(spec + hair);
+    // On light backgrounds a white edge disappears, so the corner away from the light darkens.
+    col -= half3(rim * far * shade * 0.4);
+    alpha = clamp(alpha + spec * 0.9 + hair * 0.8 + inner * 0.5 + rim * far * shade * 0.3, 0.0, 1.0);
 
     return half4(clamp(col, 0.0, 1.0) * alpha * coverage, alpha * coverage);
 }
@@ -159,7 +159,7 @@ data class GlassStyle(
     val dispersion: Float = 0.12f,
     /** Zoom of the flat middle; above 1 makes the glass a magnifier. */
     val magnify: Float = 1f,
-    val highlight: Float = 0.55f,
+    val highlight: Float = 0.7f,
     /** Blur of what's behind, for glass that refracts a recording. */
     val blur: Dp = 0.dp,
 )
@@ -197,9 +197,9 @@ internal data class GlassColors(val body: Color, val tint: Color, val shade: Flo
 
 internal fun glassColors(lightBackground: Boolean, opacity: Float): GlassColors =
     if (lightBackground) {
-        GlassColors(body = Color.White.copy(alpha = 0.42f * opacity), tint = Color.Transparent, shade = 1f)
+        GlassColors(body = Color.White.copy(alpha = 0.22f * opacity), tint = Color.Transparent, shade = 1f)
     } else {
-        GlassColors(body = Color.White.copy(alpha = 0.085f * opacity), tint = Color.Transparent, shade = 0f)
+        GlassColors(body = Color.White.copy(alpha = 0.045f * opacity), tint = Color.Transparent, shade = 0f)
     }
 
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
@@ -227,8 +227,8 @@ internal class GlassShader {
         shader.setColorUniform("tint", colors.tint.toArgb())
         shader.setFloatUniform("highlight", style.highlight)
         shader.setFloatUniform("shade", colors.shade)
-        // Light from the top left; y grows downward.
-        shader.setFloatUniform("light", -0.45f, -1f)
+        // Light from the top-left corner; y grows downward.
+        shader.setFloatUniform("light", -1f, -1f)
     }
 }
 
@@ -311,19 +311,13 @@ internal fun Modifier.liquidGlassLens(
 private fun DrawScope.drawGradientGlass(cornerRadius: Float, colors: GlassColors, style: GlassStyle) {
     val radius = CornerRadius(cornerRadius.coerceAtMost(size.minDimension / 2f))
     drawRoundRect(color = colors.body, cornerRadius = radius)
-    drawRoundRect(
-        brush = Brush.verticalGradient(
-            0f to Color.White.copy(alpha = 0.06f),
-            1f to Color.Transparent,
-        ),
-        cornerRadius = radius,
-    )
-    val rimWidth = 1.2.dp.toPx()
+    val rimWidth = 1.dp.toPx()
     drawRoundRect(
         brush = Brush.linearGradient(
-            0f to Color.White.copy(alpha = style.highlight * 0.9f),
-            0.45f to Color.White.copy(alpha = style.highlight * 0.15f),
-            1f to (if (colors.shade > 0f) Color.Black.copy(alpha = 0.25f) else Color.White.copy(alpha = style.highlight * 0.35f)),
+            0f to Color.White.copy(alpha = style.highlight * 0.8f),
+            0.3f to Color.White.copy(alpha = style.highlight * 0.08f),
+            0.7f to Color.White.copy(alpha = style.highlight * 0.08f),
+            1f to (if (colors.shade > 0f) Color.Black.copy(alpha = 0.22f) else Color.White.copy(alpha = style.highlight * 0.35f)),
             start = Offset.Zero,
             end = Offset(size.width, size.height),
         ),

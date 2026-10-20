@@ -32,6 +32,8 @@ fun GlassScreenRoot(backdrop: GlassBackdrop, modifier: Modifier = Modifier, cont
  * glass theming is on, or pure flat OLED black when it's off (per spec, glass-off replaces glass
  * with flat black rather than any other flat color).
  *
+ * @param role what the surface is, which decides how much glass it gets; see [GlassRole]. Only
+ *   used by the Apple-style glass.
  * @param hideable whether the "hide icon backgrounds" setting applies here. Only the circle behind
  *   an icon button opts in - panels, text fields, context menus and the switcher pills keep their
  *   surface and border either way, since those outlines are what make them legible as controls.
@@ -40,10 +42,14 @@ fun Modifier.glassSurface(
     shape: Shape = RoundedCornerShape(50),
     opacity: Float = 1f,
     hideable: Boolean = false,
+    role: GlassRole = GlassRole.Container,
 ): Modifier = composed {
     val glassEnabled = LocalGlassEnabled.current
     val colors = LocalAppColors.current
-    if (glassEnabled) {
+    if (glassEnabled && USE_APPLE_GLASS) {
+        // Not clipped: the shadow falls outside the shape.
+        this.appleGlassSurface(shape, role, colors.background, colors.isLightBackground, opacity)
+    } else if (glassEnabled) {
         // Glass inside the content can't refract that same content - it's part of it - so it's
         // drawn as a translucent material over whatever is underneath. See LiquidGlass.
         this

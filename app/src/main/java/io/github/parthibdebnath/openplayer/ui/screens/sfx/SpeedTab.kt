@@ -29,6 +29,7 @@ import io.github.parthibdebnath.openplayer.data.settings.SpeedEffectState
 import io.github.parthibdebnath.openplayer.ui.components.CustomSlider
 import io.github.parthibdebnath.openplayer.ui.components.GlassIconButton
 import io.github.parthibdebnath.openplayer.ui.components.ToggleRow
+import io.github.parthibdebnath.openplayer.ui.components.GlassRole
 import io.github.parthibdebnath.openplayer.ui.components.glassSurface
 import io.github.parthibdebnath.openplayer.ui.theme.interTextStyle
 import kotlin.math.roundToInt
@@ -101,7 +102,7 @@ private fun SpeedStepButton(label: String, size: Dp, verticalOffset: Dp, onClick
         modifier = Modifier
             .offset(y = verticalOffset)
             .size(size)
-            .glassSurface(shape = CircleShape)
+            .glassSurface(shape = CircleShape, role = GlassRole.Control)
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {

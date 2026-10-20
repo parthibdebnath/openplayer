@@ -45,6 +45,7 @@ private val COMPONENTS = listOf(
         "Copyright JetBrains s.r.o. and Kotlin Programming Language contributors",
         APACHE_2,
     ),
+    Component("Liquid glass rendering, adapted from AndroidLiquidGlass", "Copyright 2025 Kyant", APACHE_2),
 )
 
 /** Licence texts shipped in assets/licenses, keyed by the names above. */

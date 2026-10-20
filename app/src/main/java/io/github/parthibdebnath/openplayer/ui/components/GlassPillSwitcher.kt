@@ -83,7 +83,9 @@ fun GlassPillSwitcher(
     fontSizeSp: Float = 13.33f,
     floating: Boolean = false,
 ) {
-    if (LocalGlassEnabled.current) {
+    if (LocalGlassEnabled.current && USE_APPLE_GLASS) {
+        AppleGlassSwitcher(items, selectedIndex, onSelect, modifier, height, fontSizeSp, floating)
+    } else if (LocalGlassEnabled.current) {
         LiquidPillSwitcher(items, selectedIndex, onSelect, modifier, height, fontSizeSp, floating)
     } else {
         FlatPillSwitcher(items, selectedIndex, onSelect, modifier, height, fontSizeSp)
@@ -160,8 +162,8 @@ private val LensStyle = GlassStyle(
     bezel = 9.dp,
     refraction = 10.dp,
     dispersion = 0.16f,
-    magnify = 1.16f,
-    highlight = 0.6f,
+    magnify = 1.06f,
+    highlight = 0.75f,
 )
 
 /** The floating tab bar refracts and softly blurs the screen behind it. */
@@ -169,7 +171,7 @@ private val FloatingTrackStyle = GlassStyle(
     bezel = 12.dp,
     refraction = 16.dp,
     dispersion = 0.1f,
-    highlight = 0.5f,
+    highlight = 0.7f,
     blur = 6.dp,
 )
 
@@ -203,7 +205,7 @@ private fun LiquidPillSwitcher(
                 style = FloatingTrackStyle,
                 // Opaque, tinted towards the content colour: the bar is a slab sitting over the
                 // page, and must read as one even where there's nothing behind it to bend.
-                bodyOverride = lerp(colors.background, colors.onBackground, if (colors.isLightBackground) 0.06f else 0.1f),
+                bodyOverride = lerp(colors.background, colors.onBackground, if (colors.isLightBackground) 0.04f else 0.05f),
             )
     } else {
         Modifier.liquidGlassMaterial(shape = trackShape, lightBackground = colors.isLightBackground, opacity = 0.7f)
@@ -224,11 +226,11 @@ private fun LiquidPillSwitcher(
         var dragging by remember { mutableStateOf(false) }
         var pressed by remember { mutableStateOf(false) }
         LaunchedEffect(selectedIndex, segmentPx) {
-            if (!dragging) lensX.animateTo(targetX(selectedIndex), spring(dampingRatio = 0.66f, stiffness = 300f))
+            if (!dragging) lensX.animateTo(targetX(selectedIndex), spring(dampingRatio = 0.82f, stiffness = 380f))
         }
         val pressScale by animateFloatAsState(
-            targetValue = if (pressed) 1.1f else 1f,
-            animationSpec = spring(dampingRatio = 0.5f, stiffness = 600f),
+            targetValue = if (pressed) 1.03f else 1f,
+            animationSpec = spring(dampingRatio = 0.9f, stiffness = 700f),
             label = "lensPress",
         )
 
@@ -236,7 +238,7 @@ private fun LiquidPillSwitcher(
         val labels = rememberGraphicsLayer()
         // Opaque, the colour of the track beneath it, so the lens replaces the labels it covers
         // with its own magnified view of them rather than doubling them up.
-        val lensBody = lerp(colors.background, Color.White, if (colors.isLightBackground) 0.5f else 0.13f)
+        val lensBody = lerp(colors.background, Color.White, if (colors.isLightBackground) 0.3f else 0.07f)
 
         Row(
             modifier = Modifier
@@ -275,7 +277,7 @@ private fun LiquidPillSwitcher(
                     .graphicsLayer {
                         // A moving drop stretches along its path and thins across it; the faster
                         // it goes, the more.
-                        val stretch = 1f + (abs(lensX.velocity) / 6000f).coerceAtMost(0.28f)
+                        val stretch = 1f + (abs(lensX.velocity) / 12000f).coerceAtMost(0.1f)
                         scaleX = pressScale * stretch
                         scaleY = pressScale / sqrt(stretch)
                     }
@@ -324,7 +326,7 @@ private fun LiquidPillSwitcher(
                         }.coerceIn(0, count - 1)
                         dragging = false
                         if (index == selectedIndex) {
-                            scope.launch { lensX.animateTo(targetX(index), spring(dampingRatio = 0.66f, stiffness = 300f)) }
+                            scope.launch { lensX.animateTo(targetX(index), spring(dampingRatio = 0.82f, stiffness = 380f)) }
                         }
                         onSelect(index)
                     }
