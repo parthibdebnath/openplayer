@@ -12,4 +12,5 @@ data class Song(
     val sizeBytes: Long,
     val lastModified: Long,
     val sortIndex: Long,
+    val resumePositionMs: Long = 0L,
 )

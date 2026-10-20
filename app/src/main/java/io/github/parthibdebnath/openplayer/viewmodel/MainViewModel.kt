@@ -30,6 +30,11 @@ import io.github.parthibdebnath.openplayer.playback.PlaybackService
 import io.github.parthibdebnath.openplayer.data.settings.EffectsRepository
 import io.github.parthibdebnath.openplayer.data.settings.EffectsState
 import io.github.parthibdebnath.openplayer.data.settings.OtherAppSound
+import io.github.parthibdebnath.openplayer.data.settings.HapticStrength
+import io.github.parthibdebnath.openplayer.data.repository.ExportedPlaylist
+import io.github.parthibdebnath.openplayer.data.repository.LibraryExport
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.mapLatest
 import io.github.parthibdebnath.openplayer.data.settings.PitchEffectState
 import io.github.parthibdebnath.openplayer.data.settings.ReverbEffectState
 import io.github.parthibdebnath.openplayer.data.settings.ReverbPreset
@@ -61,7 +66,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class, kotlinx.coroutines.FlowPreview::class)
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val playlistRepository = PlaylistRepository.get(application)
     val settingsRepository = SettingsRepository(application)
@@ -202,6 +207,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             settingsRepository.otherAppSound.collect { playbackEngine.otherAppSound = it }
         }
         viewModelScope.launch {
+            settingsRepository.skipSilence.collect { playbackEngine.skipSilence = it }
+        }
+        viewModelScope.launch {
+            settingsRepository.rememberLongTracks.collect { playbackEngine.rememberLongTracks = it }
+        }
+        // The engine has no database of its own; positions in long tracks are written from here.
+        // Application-scoped like the engine, not the ViewModel's scope: the engine outlives the
+        // screen while music plays in the background.
+        playbackEngine.onResumePositionChanged = { id, position ->
+            resumeWriter.launch { playlistRepository.saveResumePosition(id, position) }
+        }
+        viewModelScope.launch {
             // distinctUntilChanged matters: uiState re-emits on every position tick, and without
             // it the service was asked to start/stop on each one.
             // Keyed off "a song is loaded", not "audio is playing": tying it to isPlaying tore the
@@ -222,6 +239,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 .collect { updatePlaybackServiceState(it) }
         }
     }
+
+    private val resumeWriter = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
 
     private data class ServiceInputs(val enabled: Boolean, val hasSong: Boolean, val running: Boolean, val visible: Boolean)
 
@@ -400,6 +419,120 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setSongSort(sort: SongSort) = launchSafely { settingsRepository.setSongSort(sort) }
 
     fun setOtherAppSound(value: OtherAppSound) = launchSafely { settingsRepository.setOtherAppSound(value) }
+    fun setSkipSilence(value: Boolean) = launchSafely { settingsRepository.setSkipSilence(value) }
+    fun setRememberLongTracks(value: Boolean) = launchSafely { settingsRepository.setRememberLongTracks(value) }
+    fun setHapticStrength(value: HapticStrength) = launchSafely { settingsRepository.setHapticStrength(value) }
+    fun setKeepScreenOn(value: Boolean) = launchSafely { settingsRepository.setKeepScreenOn(value) }
+
+    fun setIncludeSubfolders(playlistId: Long, include: Boolean) = launchSafely {
+        playlistRepository.setIncludeSubfolders(playlistId, include)
+        val existing = playlistRepository.getAllSongIds()
+        playbackEngine.dropSongs { !it.isExternal && it.playlistId == playlistId && it.id !in existing }
+    }
+
+    // --- Search across playlists -----------------------------------------------------------
+
+    private val searchQuery = MutableStateFlow("")
+
+    /** Matches for the library-wide search, newest query only; empty until something is typed. */
+    val searchResults: StateFlow<List<Song>> = searchQuery
+        .debounce(120)
+        .mapLatest { query -> if (query.isBlank()) emptyList() else playlistRepository.search(query.trim()) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun setSearchQuery(query: String) {
+        searchQuery.value = query
+    }
+
+    /** Plays a search result in its own playlist, from that song on. */
+    fun playSearchResult(song: Song) = launchSafely {
+        val name = playlists.value.firstOrNull { it.id == song.playlistId }?.displayName.orEmpty()
+        val songs = orderedSongs(listOf(song.playlistId))
+        if (songs.isEmpty()) return@launchSafely
+        playbackEngine.playSpecificSong(songs, name, songs.firstOrNull { it.id == song.id } ?: song)
+    }
+
+    // --- Export and import -------------------------------------------------------------------
+
+    private val exportJson = kotlinx.serialization.json.Json {
+        prettyPrint = true
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+    }
+
+    /** Writes every playlist to the file the user picked. */
+    fun exportLibrary(target: Uri) = launchSafely {
+        val app = getApplication<Application>()
+        val export = playlistRepository.exportLibrary()
+        val written = withContext(Dispatchers.IO) {
+            runCatching {
+                app.contentResolver.openOutputStream(target, "wt")?.use { out ->
+                    out.write(exportJson.encodeToString(LibraryExport.serializer(), export).toByteArray())
+                } != null
+            }.getOrDefault(false)
+        }
+        toast(
+            when {
+                !written -> "Couldn't write that file"
+                export.playlists.size == 1 -> "1 playlist exported"
+                else -> "${export.playlists.size} playlists exported"
+            },
+        )
+    }
+
+    private val _foldersToRepick = MutableStateFlow<List<ExportedPlaylist>>(emptyList())
+
+    /**
+     * Imported playlists whose folders the app can't read yet - after a reinstall, or on another
+     * phone - waiting to be picked again, first one first.
+     */
+    val foldersToRepick: StateFlow<List<ExportedPlaylist>> = _foldersToRepick.asStateFlow()
+
+    /** Reads an exported file and recreates its playlists. */
+    fun importLibrary(source: Uri) = launchSafely {
+        val app = getApplication<Application>()
+        val export = withContext(Dispatchers.IO) {
+            runCatching {
+                app.contentResolver.openInputStream(source)?.use { input ->
+                    exportJson.decodeFromString(LibraryExport.serializer(), input.readBytes().decodeToString())
+                }
+            }.getOrNull()
+        }
+        if (export == null) {
+            toast("That isn't an openplayer playlist file")
+            return@launchSafely
+        }
+        var imported = 0
+        val repick = ArrayList<ExportedPlaylist>()
+        for (playlist in export.playlists) {
+            val uri = Uri.parse(playlist.folderUri)
+            when {
+                playlistRepository.hasPlaylistFor(uri) -> Unit
+                playlistRepository.canRead(uri) -> {
+                    playlistRepository.importPlaylist(playlist, uri)
+                    imported++
+                }
+                else -> repick += playlist
+            }
+        }
+        _foldersToRepick.value = repick
+        toast(
+            when {
+                repick.isNotEmpty() -> "$imported imported. Pick the folder for each of the other ${repick.size}."
+                imported == 0 -> "Those playlists are already here"
+                imported == 1 -> "1 playlist imported"
+                else -> "$imported playlists imported"
+            },
+        )
+    }
+
+    /** The folder picked for the first playlist waiting on one, or null if that one was skipped. */
+    fun onFolderRepicked(folder: Uri?) = launchSafely {
+        val waiting = _foldersToRepick.value
+        val playlist = waiting.firstOrNull() ?: return@launchSafely
+        _foldersToRepick.value = waiting.drop(1)
+        if (folder != null) playlistRepository.importPlaylist(playlist, folder)
+    }
 
     // --- Opening a file from another app ------------------------------------------------------
 

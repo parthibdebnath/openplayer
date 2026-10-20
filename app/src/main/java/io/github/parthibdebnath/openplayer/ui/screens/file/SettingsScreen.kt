@@ -1,5 +1,13 @@
 package io.github.parthibdebnath.openplayer.ui.screens.file
 
+import android.provider.DocumentsContract
+import androidx.compose.runtime.key
+import io.github.parthibdebnath.openplayer.ui.components.GlassNotification
+import io.github.parthibdebnath.openplayer.util.LocalHaptics
+import io.github.parthibdebnath.openplayer.data.settings.HapticStrength
+import android.net.Uri
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.rememberLauncherForActivityResult
 import io.github.parthibdebnath.openplayer.ui.theme.LocalAppColors
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -101,7 +109,20 @@ fun SettingsScreen(
         seedInput = settings.shuffleSeed
     }
 
-    Column(modifier = modifier.fillMaxSize().padding(horizontal = 24.dp).verticalScroll(rememberScrollState())) {
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) viewModel.exportLibrary(uri)
+    }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) viewModel.importLibrary(uri)
+    }
+    // Imported playlists whose folders this install can't read yet, picked again one at a time.
+    val foldersToRepick by viewModel.foldersToRepick.collectAsStateWithLifecycle()
+    val repickLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        viewModel.onFolderRepicked(uri)
+    }
+
+    Box(modifier = modifier.fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp).verticalScroll(rememberScrollState())) {
         Spacer(Modifier.height(24.dp))
         Text(text = "Settings", style = interTextStyle(20, bold = true), color = LocalAppColors.current.onBackground)
         Spacer(Modifier.height(24.dp))
@@ -180,6 +201,30 @@ fun SettingsScreen(
             bold = false,
         )
         Spacer(Modifier.height(34.dp))
+        ToggleRow(
+            label = "Remember position in long tracks",
+            checked = settings.rememberLongTracks,
+            onToggle = { viewModel.setRememberLongTracks(it) },
+            bold = false,
+        )
+        SettingNote("Tracks of 20 minutes or more pick up where you left off.")
+        Spacer(Modifier.height(34.dp))
+        ToggleRow(
+            label = "Skip silence",
+            checked = settings.skipSilence,
+            onToggle = { viewModel.setSkipSilence(it) },
+            bold = false,
+        )
+        SettingNote("Skips quiet stretches within songs, such as long intros and gaps.")
+        Spacer(Modifier.height(34.dp))
+        ToggleRow(
+            label = "Keep screen on while playing",
+            checked = settings.keepScreenOn,
+            onToggle = { viewModel.setKeepScreenOn(it) },
+            bold = false,
+        )
+        SettingNote("While the Play screen is open and music is playing, the screen doesn't turn off.")
+        Spacer(Modifier.height(34.dp))
         Text(text = "Crossfade", style = interTextStyle(20, bold = false), color = LocalAppColors.current.onBackground)
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -241,6 +286,22 @@ fun SettingsScreen(
             checked = settings.threeFingerVolumeGesture,
             onToggle = { viewModel.setThreeFingerVolumeGesture(it) },
             bold = false,
+        )
+        Spacer(Modifier.height(34.dp))
+        Text(text = "Haptic feedback", style = interTextStyle(20, bold = false), color = LocalAppColors.current.onBackground)
+        Spacer(Modifier.height(12.dp))
+        val haptics = LocalHaptics.current
+        GlassPillSwitcher(
+            items = HapticStrength.entries.map { it.label },
+            selectedIndex = settings.hapticStrength.ordinal,
+            onSelect = { index ->
+                val strength = HapticStrength.entries[index]
+                viewModel.setHapticStrength(strength)
+                // Felt straight away, at the new strength, rather than at the next tap.
+                haptics?.strength = strength
+                haptics?.click()
+            },
+            height = 44.dp,
         )
         Spacer(Modifier.height(34.dp))
 
@@ -373,6 +434,16 @@ fun SettingsScreen(
         }
         Spacer(Modifier.height(34.dp))
 
+        SectionHeading("Library")
+        SettingLink("Export playlists", "Saves your playlists, their settings and renamed songs to a file.") {
+            exportLauncher.launch("openplayer-playlists.json")
+        }
+        Spacer(Modifier.height(24.dp))
+        SettingLink("Import playlists", "Restores playlists from an exported file, on this phone or a new one.") {
+            importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
+        }
+        Spacer(Modifier.height(34.dp))
+
         SectionHeading("About")
         Text(
             text = "openplayer ${viewModel.appVersion}".trim(),
@@ -400,6 +471,63 @@ fun SettingsScreen(
                 ),
         )
         Spacer(Modifier.height(24.dp))
+    }
+    foldersToRepick.firstOrNull()?.let { playlist ->
+        // Keyed, so each prompt starts afresh: the notification remembers being swiped away, and
+        // without this the next prompt arrived already dismissed.
+        key(playlist.folderUri) {
+        GlassNotification(
+            title = "Find \u201C${playlist.name}\u201D",
+            message = "Pick its folder so openplayer can read it here. Swipe away to skip it.",
+            onConfirm = { repickLauncher.launch(folderPickerStart(playlist.folderUri)) },
+            onDismiss = { viewModel.onFolderRepicked(null) },
+            // Backed with the page colour: it floats over the settings, and an outline-only
+            // surface (glass off, icon backgrounds hidden) left it unreadable on top of them.
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(horizontal = 18.dp, vertical = 12.dp)
+                .background(LocalAppColors.current.background, RoundedCornerShape(10.dp)),
+        )
+        }
+    }
+    }
+}
+
+/**
+ * Where the folder picker should open for a saved folder. The picker wants the folder's document,
+ * not the tree link that was saved, and given the tree it opened at the top of storage instead.
+ */
+private fun folderPickerStart(folderUri: String): Uri? = runCatching {
+    val tree = Uri.parse(folderUri)
+    DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
+}.getOrNull()
+
+/** A line of explanation under a setting. */
+@Composable
+private fun SettingNote(text: String) {
+    Spacer(Modifier.height(8.dp))
+    Text(
+        text = text,
+        style = interTextStyle(14, bold = false),
+        color = LocalAppColors.current.onBackground.copy(alpha = 0.6f),
+    )
+}
+
+/** A setting that does something when tapped, rather than switching on and off. */
+@Composable
+private fun SettingLink(title: String, description: String, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            ),
+    ) {
+        Text(text = "$title \u203A", style = interTextStyle(20, bold = false), color = LocalAppColors.current.onBackground)
+        Spacer(Modifier.height(6.dp))
+        Text(text = description, style = interTextStyle(14, bold = false), color = LocalAppColors.current.onBackground.copy(alpha = 0.6f))
     }
 }
 

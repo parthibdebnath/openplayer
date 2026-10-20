@@ -28,6 +28,9 @@ interface PlaylistDao {
     @Update
     suspend fun update(playlist: PlaylistEntity)
 
+    @Query("UPDATE playlists SET includeSubfolders = :include WHERE id = :id")
+    suspend fun setIncludeSubfolders(id: Long, include: Boolean)
+
     @Delete
     suspend fun delete(playlist: PlaylistEntity)
 }

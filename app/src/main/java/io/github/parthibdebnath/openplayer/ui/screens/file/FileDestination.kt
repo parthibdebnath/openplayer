@@ -8,6 +8,7 @@ sealed class FileDestination {
     data class PlaylistSongs(val playlistId: Long) : FileDestination()
     data object Settings : FileDestination()
     data object Licences : FileDestination()
+    data object Search : FileDestination()
 
     companion object {
         /**
@@ -21,6 +22,7 @@ sealed class FileDestination {
                     MultiPlaylist -> listOf(1)
                     Settings -> listOf(2)
                     Licences -> listOf(4)
+                    Search -> listOf(5)
                     is PlaylistSongs -> listOf(3, it.playlistId)
                 }
             },
@@ -28,6 +30,7 @@ sealed class FileDestination {
                 when (it.firstOrNull()) {
                     1 -> MultiPlaylist
                     3 -> PlaylistSongs(it[1] as Long)
+                    5 -> Search
                     // Settings (and the licences page under it) deliberately doesn't survive. It's a sub-screen reached from the
                     // gear, and coming back to the File tab should land on the file browser.
                     // Dropping it here rather than resetting after the fact matters: restore runs

@@ -179,6 +179,28 @@ class PlaybackEngine private constructor(context: Context) {
 
     private var currentShuffleSeed: String = ""
     private var lastError: String? = null
+
+    /** The sleep timer's fade: 1 normally, falling to 0 over the last moments before it stops. */
+    private var sleepGain: Float = 1f
+
+    /** The song actually loaded in the active player, for remembering where it was left. */
+    private var loadedSong: Song? = null
+
+    /** Positions saved this session, ahead of the copies of songs the queue still holds. */
+    private val resumePositions = HashMap<Long, Long>()
+
+    /** Saves a long track's position; set by the ViewModel, which owns the database. */
+    var onResumePositionChanged: ((songId: Long, positionMs: Long) -> Unit)? = null
+
+    /** Whether long tracks pick up where they were left off; see [LONG_TRACK_MS]. */
+    var rememberLongTracks: Boolean = true
+
+    /** Skips stretches of silence within songs - long intros, gaps between live tracks. */
+    var skipSilence: Boolean = false
+        set(value) {
+            field = value
+            slots.forEach { slot -> runCatching { slot.player.skipSilenceEnabled = value } }
+        }
     private var notice: String? = null
     private var dspBypassedAfterFailure = false
     private var retriesForCurrentItem = 0
@@ -244,6 +266,7 @@ class PlaybackEngine private constructor(context: Context) {
                     anyPlaying.first { it }
                 }
                 advanceCrossfade()
+                updateSleepFade()
                 syncState()
                 delay(nextTickDelayMs())
             }
@@ -269,6 +292,8 @@ class PlaybackEngine private constructor(context: Context) {
             // repeat-all wrap, or a track too short to have been crossfaded. Ordinary song-to-song
             // moves go through onMediaItemTransition or the crossfade instead.
             if (playbackState == Player.STATE_ENDED && fadeProgress == null) {
+                // Played to the end: next time it starts from the top.
+                rememberPosition(loadedSong, 0L, force = true)
                 if (sleepTimerManager.consumeStopAfterCurrentSong()) {
                     // Explicitly pause and rewind: left in STATE_ENDED the transport would still
                     // read as playing, with no way to resume without re-preparing.
@@ -292,7 +317,9 @@ class PlaybackEngine private constructor(context: Context) {
             // The player rolled onto the item preloaded behind the current one. Mirror that in the
             // queue, then top the window back up so the following song is ready too.
             if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && !rebuildingWindow) {
+                rememberPosition(loadedSong, 0L, force = true)
                 queueManager.advanceToNext(currentShuffleSeed)
+                loadedSong = queueManager.current
                 retriesForCurrentItem = 0
                 syncUpcomingWindow()
             }
@@ -380,8 +407,11 @@ class PlaybackEngine private constructor(context: Context) {
      * one is coming up, so it still begins on time.
      */
     private fun nextTickDelayMs(): Long {
-        if (fadeProgress != null) return TICK_MS
+        if (fadeProgress != null || sleepGain < 1f) return TICK_MS
         val idle = if (uiVisible) UI_TICK_MS else BACKGROUND_TICK_MS
+        // Close enough to the sleep timer's fade that the next tick has to start it on time.
+        val untilSleepFade = sleepFadeRemainingMs() - SLEEP_FADE_MS
+        if (untilSleepFade < idle) return untilSleepFade.coerceIn(TICK_MS, idle)
         val fadeMs = crossfadeMs
         if (fadeMs > 0) {
             val playerRef = active.player
@@ -392,6 +422,68 @@ class PlaybackEngine private constructor(context: Context) {
             }
         }
         return idle
+    }
+
+    // --- Long tracks -------------------------------------------------------------------------
+
+    private fun isLongTrack(song: Song): Boolean {
+        val duration = if (song.id == loadedSong?.id && player.duration > 0) player.duration else song.durationMs
+        return duration >= LONG_TRACK_MS
+    }
+
+    /** Where [song] should start: its remembered position if it's a long track, otherwise the top. */
+    private fun resumePositionFor(song: Song): Long {
+        if (!rememberLongTracks || song.isExternal || song.durationMs < LONG_TRACK_MS) return 0L
+        return resumePositions[song.id] ?: song.resumePositionMs
+    }
+
+    /**
+     * A song can only be lined up behind the current one for a gapless roll-over if it starts
+     * from the top; one that resumes part-way is loaded when it's reached, so it can be started
+     * where it was left.
+     */
+    private fun preloadable(song: Song): Boolean = resumePositionFor(song) == 0L
+
+    /**
+     * Notes how far into a long track playback got. Positions right at either end count as
+     * "from the start", so a track that was finished, or barely begun, isn't resumed. While
+     * playing it's saved every [RESUME_SAVE_STEP_MS] rather than on every tick.
+     */
+    private fun rememberPosition(song: Song?, positionMs: Long, force: Boolean) {
+        if (song == null || song.isExternal || !rememberLongTracks || !isLongTrack(song)) return
+        val duration = if (song.id == loadedSong?.id && player.duration > 0) player.duration else song.durationMs
+        val position = if (positionMs < RESUME_EDGE_MS || positionMs > duration - RESUME_EDGE_MS) 0L else positionMs
+        val previous = resumePositions[song.id] ?: song.resumePositionMs
+        if (position == previous) return
+        if (!force && position != 0L && kotlin.math.abs(position - previous) < RESUME_SAVE_STEP_MS) return
+        resumePositions[song.id] = position
+        onResumePositionChanged?.invoke(song.id, position)
+    }
+
+    // --- Sleep timer fade ----------------------------------------------------------------------
+
+    /**
+     * How long until the sleep timer stops the music - the timer itself, or the end of the song
+     * it's waiting for - or [Long.MAX_VALUE] when it isn't about to.
+     */
+    private fun sleepFadeRemainingMs(): Long = when {
+        sleepTimerManager.isStopAfterCurrentSongPending() -> {
+            val duration = player.duration
+            if (duration > 0) (duration - player.currentPosition).coerceAtLeast(0) else Long.MAX_VALUE
+        }
+        sleepTimerManager.state.value.isActive && !sleepTimerManager.state.value.playLastSongToEnd ->
+            sleepTimerManager.remainingMs()
+        else -> Long.MAX_VALUE
+    }
+
+    /** Lowers the volume over the sleep timer's last [SLEEP_FADE_MS], rather than cutting off dead. */
+    private fun updateSleepFade() {
+        val remaining = sleepFadeRemainingMs()
+        val gain = if (remaining >= SLEEP_FADE_MS) 1f else (remaining.toFloat() / SLEEP_FADE_MS).coerceIn(0f, 1f)
+        if (kotlin.math.abs(gain - sleepGain) > 0.002f) {
+            sleepGain = gain
+            applyVolumes()
+        }
     }
 
     // --- Crossfade ----------------------------------------------------------------------------
@@ -469,13 +561,16 @@ class PlaybackEngine private constructor(context: Context) {
             incoming.fadeGain = 0f
             incoming.player.repeatMode = Player.REPEAT_MODE_OFF
             rebuildingWindow = true
-            incoming.player.setMediaItem(mediaItemFor(next))
+            incoming.player.setMediaItem(mediaItemFor(next), resumePositionFor(next))
             incoming.player.prepare()
             applyVolumes()
             incoming.player.play()
             rebuildingWindow = false
 
+            // The outgoing track is playing out to its end, so next time it starts from the top.
+            rememberPosition(loadedSong, 0L, force = true)
             queueManager.advanceToNext(currentShuffleSeed)
+            loadedSong = next
             activeIndex = 1 - activeIndex
             retriesForCurrentItem = 0
             fadeProgress = 0f
@@ -515,7 +610,7 @@ class PlaybackEngine private constructor(context: Context) {
 
     private fun applyVolumes() {
         slots.forEach { slot ->
-            val target = (slot.fadeGain * duckGain).coerceIn(0f, 1f)
+            val target = (slot.fadeGain * duckGain * sleepGain).coerceIn(0f, 1f)
             if (kotlin.math.abs(slot.player.volume - target) > 0.005f) {
                 runCatching { slot.player.volume = target }
             }
@@ -635,6 +730,9 @@ class PlaybackEngine private constructor(context: Context) {
     /** Resumes playback, re-preparing first if an earlier failure left the player idle. */
     fun play() {
         focusController.requestFocus()
+        // The fade that ended the last sleep timer would otherwise leave this silent until the
+        // next tick put the volume back.
+        updateSleepFade()
         if (player.playbackState == Player.STATE_IDLE) {
             retriesForCurrentItem = 0
             runCatching { player.prepare() }
@@ -654,6 +752,7 @@ class PlaybackEngine private constructor(context: Context) {
     fun pause() {
         focusController.onPlaybackPausedDeliberately()
         pausePlayers()
+        rememberPosition(loadedSong, player.currentPosition, force = true)
         // Saved straight away rather than at the next periodic save: a pause is exactly the point
         // someone expects to come back to.
         persistNow()
@@ -795,6 +894,7 @@ class PlaybackEngine private constructor(context: Context) {
             }
 
             val current = queueManager.current ?: return@withLock
+            rememberPosition(loadedSong, player.currentPosition, force = false)
             val position = SavedPosition(current.id, player.currentPosition.coerceAtLeast(0L))
             if (position != lastSavedPosition) {
                 runCatching { stateRepository.savePosition(position) }
@@ -1015,14 +1115,18 @@ class PlaybackEngine private constructor(context: Context) {
                     }
                 }
                 focusController.abandonFocus()
+                loadedSong = null
                 syncState()
                 return
             }
+            // Leaving a long track part-way through: note where, for next time.
+            if (loadedSong?.id != song.id) rememberPosition(loadedSong, player.currentPosition, force = true)
+            loadedSong = song
             retriesForCurrentItem = 0
             lastError = null
             rebuildingWindow = true
             if (autoPlay) focusController.requestFocus()
-            player.setMediaItems(windowFor(song))
+            player.setMediaItems(windowFor(song), 0, resumePositionFor(song))
             applyRepeatModeToPlayer()
             player.prepare()
             if (autoPlay) player.play()
@@ -1046,7 +1150,7 @@ class PlaybackEngine private constructor(context: Context) {
         if (crossfadeMs > 0 || sleepTimerManager.isStopAfterCurrentSongPending()) {
             listOf(mediaItemFor(song))
         } else {
-            listOfNotNull(mediaItemFor(song), queueManager.peekNext()?.let(::mediaItemFor))
+            listOfNotNull(mediaItemFor(song), queueManager.peekNext()?.takeIf(::preloadable)?.let(::mediaItemFor))
         }
 
     private fun mediaItemFor(song: Song): MediaItem = MediaItem.Builder()
@@ -1096,7 +1200,7 @@ class PlaybackEngine private constructor(context: Context) {
             val currentIndex = player.currentMediaItemIndex
             if (currentIndex > 0) player.removeMediaItems(0, currentIndex)
 
-            val desiredNext = queueManager.peekNext()
+            val desiredNext = queueManager.peekNext()?.takeIf(::preloadable)
             val existingNextId = if (player.mediaItemCount > 1) player.getMediaItemAt(1).mediaId else null
             val desiredNextId = desiredNext?.id?.toString()
             if (existingNextId != desiredNextId) {
@@ -1163,6 +1267,18 @@ class PlaybackEngine private constructor(context: Context) {
 
         /** How often the position is saved while playing; the most a sudden process death can lose. */
         private const val PERSIST_INTERVAL_MS = 2_000L
+
+        /** Tracks at least this long remember where they were left off. */
+        private const val LONG_TRACK_MS = 20 * 60_000L
+
+        /** A remembered position this close to either end counts as "from the start". */
+        private const val RESUME_EDGE_MS = 10_000L
+
+        /** How far a long track has to move before its position is saved again while playing. */
+        private const val RESUME_SAVE_STEP_MS = 15_000L
+
+        /** How long the sleep timer's fade-out lasts. */
+        private const val SLEEP_FADE_MS = 30_000L
 
         /** Unplayable songs skipped in a row before playback gives up; see [skipUnplayableSong]. */
         private const val MAX_CONSECUTIVE_UNPLAYABLE = 5

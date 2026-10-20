@@ -58,6 +58,17 @@ object SettingsDefaults {
 
     /** Lowering rather than pausing, so a game or a notification doesn't stop the music. */
     val OTHER_APP_SOUND = OtherAppSound.LOWER_VOLUME
+
+    /** Off: a song plays exactly as recorded, silences included. */
+    const val SKIP_SILENCE = false
+
+    /** On = tracks of 20 minutes or more pick up where they were left off. */
+    const val REMEMBER_LONG_TRACKS = true
+
+    val HAPTIC_STRENGTH = HapticStrength.LIGHT
+
+    /** Off: the screen times out as usual. On only matters while the Play screen is up and playing. */
+    const val KEEP_SCREEN_ON = false
 }
 
 /** Every setting at once, as the UI reads them. */
@@ -80,6 +91,10 @@ data class SettingsSnapshot(
     val restartSongOnOpen: Boolean = SettingsDefaults.RESTART_SONG_ON_OPEN,
     val songSort: SongSort = SongSort.NAME,
     val otherAppSound: OtherAppSound = SettingsDefaults.OTHER_APP_SOUND,
+    val skipSilence: Boolean = SettingsDefaults.SKIP_SILENCE,
+    val rememberLongTracks: Boolean = SettingsDefaults.REMEMBER_LONG_TRACKS,
+    val hapticStrength: HapticStrength = SettingsDefaults.HAPTIC_STRENGTH,
+    val keepScreenOn: Boolean = SettingsDefaults.KEEP_SCREEN_ON,
 )
 
 /**
@@ -108,6 +123,10 @@ class SettingsRepository(private val context: Context) {
         val RESTART_SONG_ON_OPEN = booleanPreferencesKey("restart_song_on_open")
         val SONG_SORT = stringPreferencesKey("song_sort")
         val OTHER_APP_SOUND = stringPreferencesKey("other_app_sound")
+        val SKIP_SILENCE = booleanPreferencesKey("skip_silence")
+        val REMEMBER_LONG_TRACKS = booleanPreferencesKey("remember_long_tracks")
+        val HAPTIC_STRENGTH = stringPreferencesKey("haptic_strength")
+        val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
 
         /** Settings that no longer exist, cleared out by [prepare]. */
         val RETIRED = listOf(booleanPreferencesKey("invert_contrast"))
@@ -142,6 +161,10 @@ class SettingsRepository(private val context: Context) {
             restartSongOnOpen = p[Keys.RESTART_SONG_ON_OPEN] ?: SettingsDefaults.RESTART_SONG_ON_OPEN,
             songSort = SongSort.fromName(p[Keys.SONG_SORT]),
             otherAppSound = OtherAppSound.fromName(p[Keys.OTHER_APP_SOUND]),
+            skipSilence = p[Keys.SKIP_SILENCE] ?: SettingsDefaults.SKIP_SILENCE,
+            rememberLongTracks = p[Keys.REMEMBER_LONG_TRACKS] ?: SettingsDefaults.REMEMBER_LONG_TRACKS,
+            hapticStrength = HapticStrength.fromName(p[Keys.HAPTIC_STRENGTH]),
+            keepScreenOn = p[Keys.KEEP_SCREEN_ON] ?: SettingsDefaults.KEEP_SCREEN_ON,
         )
     }
 
@@ -156,6 +179,8 @@ class SettingsRepository(private val context: Context) {
     val crossfadeMs: Flow<Int> = setting(::crossfadeOf)
     val songSort: Flow<SongSort> = setting { SongSort.fromName(it[Keys.SONG_SORT]) }
     val otherAppSound: Flow<OtherAppSound> = setting { OtherAppSound.fromName(it[Keys.OTHER_APP_SOUND]) }
+    val skipSilence: Flow<Boolean> = setting { it[Keys.SKIP_SILENCE] ?: SettingsDefaults.SKIP_SILENCE }
+    val rememberLongTracks: Flow<Boolean> = setting { it[Keys.REMEMBER_LONG_TRACKS] ?: SettingsDefaults.REMEMBER_LONG_TRACKS }
 
     /**
      * Empty only until [prepare] has run once. Falling back to a freshly generated seed here
@@ -184,6 +209,10 @@ class SettingsRepository(private val context: Context) {
     suspend fun setShuffleSeed(value: String) = set(Keys.SHUFFLE_SEED, value)
     suspend fun setSongSort(value: SongSort) = set(Keys.SONG_SORT, value.name)
     suspend fun setOtherAppSound(value: OtherAppSound) = set(Keys.OTHER_APP_SOUND, value.name)
+    suspend fun setSkipSilence(value: Boolean) = set(Keys.SKIP_SILENCE, value)
+    suspend fun setRememberLongTracks(value: Boolean) = set(Keys.REMEMBER_LONG_TRACKS, value)
+    suspend fun setHapticStrength(value: HapticStrength) = set(Keys.HAPTIC_STRENGTH, value.name)
+    suspend fun setKeepScreenOn(value: Boolean) = set(Keys.KEEP_SCREEN_ON, value)
 
     /**
      * Rolls a new background colour if [today] isn't the day the current one was picked. Both the

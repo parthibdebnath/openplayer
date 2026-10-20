@@ -76,7 +76,7 @@ class PlaylistRepository(private val context: Context) {
      * always showed zero songs, because each song row belongs to exactly one playlist and the
      * scan re-homed them to whichever playlist scanned last.
      */
-    suspend fun createPlaylist(folderUri: Uri, displayName: String): Long = withContext(Dispatchers.IO) {
+    suspend fun createPlaylist(folderUri: Uri, displayName: String, includeSubfolders: Boolean = false): Long = withContext(Dispatchers.IO) {
         playlistDao.getAll().firstOrNull { it.folderUri == folderUri.toString() }?.let {
             return@withContext it.id
         }
@@ -96,10 +96,11 @@ class PlaylistRepository(private val context: Context) {
                 folderUri = folderUri.toString(),
                 number = nextNumber,
                 createdAt = System.currentTimeMillis(),
+                includeSubfolders = includeSubfolders,
             ),
         )
         // Shown as scanning, so the new playlist reads "Scanning..." rather than "0 songs".
-        whileScanning { scanner.rescan(id, folderUri.toString()) }
+        whileScanning { scanner.rescan(id, folderUri.toString(), includeSubfolders) }
         id
     }
 
@@ -139,13 +140,70 @@ class PlaylistRepository(private val context: Context) {
 
     suspend fun rescanAll() = withContext(Dispatchers.IO) {
         whileScanning {
-            playlistDao.getAll().forEach { scanner.rescan(it.id, it.folderUri) }
+            playlistDao.getAll().forEach { scanner.rescan(it.id, it.folderUri, it.includeSubfolders) }
         }
     }
 
     suspend fun rescanPlaylist(playlistId: Long) = withContext(Dispatchers.IO) {
         val entity = playlistDao.getById(playlistId) ?: return@withContext
-        whileScanning { scanner.rescan(playlistId, entity.folderUri) }
+        whileScanning { scanner.rescan(playlistId, entity.folderUri, entity.includeSubfolders) }
+    }
+
+    /** Turns subfolders on or off for a playlist, and rescans it to match. */
+    suspend fun setIncludeSubfolders(playlistId: Long, include: Boolean) = withContext(Dispatchers.IO) {
+        val entity = playlistDao.getById(playlistId) ?: return@withContext
+        playlistDao.setIncludeSubfolders(playlistId, include)
+        whileScanning { scanner.rescan(playlistId, entity.folderUri, include) }
+    }
+
+    /** Where a long track was left off; see PlaybackEngine's resume handling. */
+    suspend fun saveResumePosition(songId: Long, positionMs: Long) = withContext(Dispatchers.IO) {
+        songDao.updateResumePosition(songId, positionMs)
+    }
+
+    /** Songs from every playlist whose name or artist contains [query], ignoring case. */
+    suspend fun search(query: String, limit: Int = SEARCH_LIMIT): List<Song> = withContext(Dispatchers.IO) {
+        val escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        songDao.search("%$escaped%", limit).map { it.toModel() }
+    }
+
+    // --- Export and import ----------------------------------------------------------------
+
+    /** Every playlist, with its folder, settings and the songs that have been renamed in the app. */
+    suspend fun exportLibrary(): LibraryExport = withContext(Dispatchers.IO) {
+        LibraryExport(
+            playlists = playlistDao.getAll().map { playlist ->
+                val renamed = songDao.getByPlaylist(playlist.id)
+                    .filter { it.displayName != it.fileName.substringBeforeLast('.') }
+                    .associate { it.fileName to it.displayName }
+                ExportedPlaylist(
+                    name = playlist.displayName,
+                    folderUri = playlist.folderUri,
+                    includeSubfolders = playlist.includeSubfolders,
+                    renamedSongs = renamed,
+                )
+            },
+        )
+    }
+
+    /**
+     * Whether the app may still read [folderUri]. Folder access belongs to an install: after a
+     * reinstall, or on another phone, a saved folder has to be picked again before it can be read.
+     */
+    fun canRead(folderUri: Uri): Boolean =
+        context.contentResolver.persistedUriPermissions.any { it.uri == folderUri && it.isReadPermission }
+
+    /** Whether a playlist for [folderUri] already exists. */
+    suspend fun hasPlaylistFor(folderUri: Uri): Boolean = withContext(Dispatchers.IO) {
+        playlistDao.getAll().any { it.folderUri == folderUri.toString() }
+    }
+
+    /** Recreates an exported playlist on [folderUri] - its own, or the one picked in its place. */
+    suspend fun importPlaylist(playlist: ExportedPlaylist, folderUri: Uri) = withContext(Dispatchers.IO) {
+        val id = createPlaylist(folderUri, playlist.name, playlist.includeSubfolders)
+        playlist.renamedSongs.forEach { (fileName, displayName) ->
+            songDao.renameByFileName(id, fileName, displayName)
+        }
     }
 
     suspend fun renameSong(songId: Long, newDisplayName: String) = withContext(Dispatchers.IO) {
@@ -161,7 +219,7 @@ class PlaylistRepository(private val context: Context) {
         val entity = playlistDao.getById(playlistId) ?: return@withContext 0
         val root = DocumentFile.fromTreeUri(context, Uri.parse(entity.folderUri)) ?: return@withContext 0
         val copied = sourceUris.count { SafFileOperations.copyInto(context, it, root) != null }
-        if (copied > 0) whileScanning { scanner.rescan(playlistId, entity.folderUri) }
+        if (copied > 0) whileScanning { scanner.rescan(playlistId, entity.folderUri, entity.includeSubfolders) }
         copied
     }
 
@@ -174,12 +232,23 @@ class PlaylistRepository(private val context: Context) {
         // storage round trip per song in the folder.
         val sourceDoc = DocumentFile.fromSingleUri(context, Uri.parse(song.documentUri))
             ?: return@withContext false
-        val moved = SafFileOperations.moveInto(context, sourceDoc, root, removedFolder)
-        if (moved) scanner.rescan(song.playlistId, entity.folderUri)
+        // A song in a subfolder has that subfolder as its parent, not the playlist's folder; the
+        // move needs the real one.
+        val parent = parentOf(Uri.parse(entity.folderUri), Uri.parse(song.documentUri)) ?: root
+        val moved = SafFileOperations.moveInto(context, sourceDoc, parent, removedFolder)
+        if (moved) scanner.rescan(song.playlistId, entity.folderUri, entity.includeSubfolders)
         moved
     }
 
+    private fun parentOf(treeUri: Uri, documentUri: Uri): DocumentFile? = runCatching {
+        val path = android.provider.DocumentsContract.findDocumentPath(context.contentResolver, documentUri)?.path
+        val parentId = path?.getOrNull(path.size - 2) ?: return@runCatching null
+        DocumentFile.fromTreeUri(context, android.provider.DocumentsContract.buildDocumentUriUsingTree(treeUri, parentId))
+    }.getOrNull()
+
     companion object {
+        private const val SEARCH_LIMIT = 300
+
         @Volatile private var instance: PlaylistRepository? = null
         fun get(context: Context): PlaylistRepository =
             instance ?: synchronized(this) {
@@ -195,6 +264,7 @@ private fun PlaylistEntity.toModel(songCount: Int) = Playlist(
     number = number,
     createdAt = createdAt,
     songCount = songCount,
+    includeSubfolders = includeSubfolders,
 )
 
 private fun SongEntity.toModel() = Song(
@@ -208,4 +278,5 @@ private fun SongEntity.toModel() = Song(
     sizeBytes = sizeBytes,
     lastModified = lastModified,
     sortIndex = sortIndex,
+    resumePositionMs = resumePositionMs,
 )

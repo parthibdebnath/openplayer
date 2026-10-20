@@ -1,5 +1,6 @@
 package io.github.parthibdebnath.openplayer.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -10,4 +11,6 @@ data class PlaylistEntity(
     val folderUri: String,
     val number: Int,
     val createdAt: Long,
+    /** Whether songs in subfolders belong to the playlist too, not only the folder's own files. */
+    @ColumnInfo(defaultValue = "0") val includeSubfolders: Boolean = false,
 )

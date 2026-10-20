@@ -1,5 +1,6 @@
 package io.github.parthibdebnath.openplayer.ui.screens.file
 
+import androidx.compose.material.icons.filled.Search
 import io.github.parthibdebnath.openplayer.ui.theme.LocalAppColors
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -57,6 +58,7 @@ fun PlaylistListScreen(
     authGateManager: AuthGateManager,
     onOpenPlaylist: (Long) -> Unit,
     onOpenMultiPlaylist: () -> Unit,
+    onOpenSearch: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
@@ -184,6 +186,13 @@ fun PlaylistListScreen(
                                     // Picks up files added to the folder since the app was opened.
                                     ContextMenuItem(label = "Refresh", onClick = { viewModel.rescanPlaylist(playlist.id) }),
                                     ContextMenuItem(label = "Rename", onClick = { renamingPlaylist = playlist }),
+                                    // Songs in folders inside this one, for a library laid out
+                                    // by artist or album. Ticked while it's on.
+                                    ContextMenuItem(
+                                        label = "Include subfolders",
+                                        selected = playlist.includeSubfolders,
+                                        onClick = { viewModel.setIncludeSubfolders(playlist.id, !playlist.includeSubfolders) },
+                                    ),
                                     ContextMenuItem(label = "Delete", destructive = true, onClick = {
                                         scope.launch {
                                             val authorized = if (settings.requireAuthToDelete) {
@@ -223,6 +232,14 @@ fun PlaylistListScreen(
                 icon = Icons.Filled.Add,
                 contentDescription = "Add playlist",
                 onClick = { folderPicker.launch(null) },
+                circleSize = 40.dp,
+                iconSize = 20.dp,
+            )
+            Spacer(Modifier.size(10.dp))
+            GlassIconButton(
+                icon = Icons.Filled.Search,
+                contentDescription = "Search all playlists",
+                onClick = onOpenSearch,
                 circleSize = 40.dp,
                 iconSize = 20.dp,
             )

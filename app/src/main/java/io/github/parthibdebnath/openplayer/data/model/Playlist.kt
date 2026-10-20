@@ -8,4 +8,5 @@ data class Playlist(
     val number: Int,
     val createdAt: Long,
     val songCount: Int = 0,
+    val includeSubfolders: Boolean = false,
 )

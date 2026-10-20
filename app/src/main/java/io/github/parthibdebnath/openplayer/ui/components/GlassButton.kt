@@ -1,5 +1,6 @@
 package io.github.parthibdebnath.openplayer.ui.components
 
+import io.github.parthibdebnath.openplayer.util.LocalHaptics
 import io.github.parthibdebnath.openplayer.ui.theme.LocalAppColors
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -36,6 +37,7 @@ fun GlassIconButton(
     tint: Color = LocalAppColors.current.onBackground,
     enabled: Boolean = true,
 ) {
+    val haptics = LocalHaptics.current
     Box(
         modifier = modifier
             .size(circleSize)
@@ -45,7 +47,10 @@ fun GlassIconButton(
                 indication = null,
                 enabled = enabled,
                 role = Role.Button,
-                onClick = onClick,
+                onClick = {
+                    haptics?.click()
+                    onClick()
+                },
             )
             .semantics { this.contentDescription = contentDescription },
         contentAlignment = Alignment.Center,

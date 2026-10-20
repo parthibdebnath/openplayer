@@ -1,5 +1,7 @@
 package io.github.parthibdebnath.openplayer.ui.screens.play
 
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalView
 import io.github.parthibdebnath.openplayer.ui.theme.LocalAppColors
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -79,6 +81,15 @@ fun PlayScreen(
     var gesturePercent by remember { mutableIntStateOf(0) }
 
     val hasSong = playbackState.currentSong != null
+
+    // Held only while this screen is showing and music is playing: leaving the tab, pausing, or
+    // the screen going away all let it time out again.
+    val view = LocalView.current
+    val keepAwake = settings.keepScreenOn && playbackState.isPlaying
+    DisposableEffect(view, keepAwake) {
+        view.keepScreenOn = keepAwake
+        onDispose { view.keepScreenOn = false }
+    }
 
     Box(
         modifier = modifier

@@ -33,6 +33,10 @@ private const val METADATA_BATCH_SIZE = 24
  */
 private const val DURATION_UNAVAILABLE = -1L
 
+/** How deep into subfolders a scan goes, and how many files it takes at most. */
+private const val MAX_DEPTH = 8
+private const val MAX_FILES = 50_000
+
 private class ExtractedMetadata(val songId: Long, val artist: String, val durationMs: Long)
 
 /** One row of the folder listing, read in a single bulk query rather than file by file. */
@@ -46,9 +50,10 @@ private data class ScannedFile(
 /**
  * Rescans a playlist's backing folder (SAF tree) on every app open, per spec.
  *
- * Only the folder's direct children are indexed as songs (nested folders other than
- * [REMOVED_SONGS_FOLDER_NAME] are not recursed into) so that "import a folder as a playlist" has
- * predictable, non-surprising contents.
+ * By default only the folder's direct children are indexed as songs, so that "import a folder as a
+ * playlist" has predictable contents. A playlist can opt in to its subfolders as well - a library
+ * laid out artist/album/track - in which case the whole tree is walked, except
+ * [REMOVED_SONGS_FOLDER_NAME].
  *
  * The scan runs in two phases, which is what makes a large folder usable:
  *
@@ -63,22 +68,22 @@ class PlaylistScanner(
 ) {
     private val songDao = db.songDao()
 
-    suspend fun rescan(playlistId: Long, folderUri: String) = withContext(Dispatchers.IO) {
+    suspend fun rescan(playlistId: Long, folderUri: String, includeSubfolders: Boolean) = withContext(Dispatchers.IO) {
         try {
-            rescanInternal(playlistId, folderUri)
+            rescanInternal(playlistId, folderUri, includeSubfolders)
         } catch (_: SecurityException) {
             // Folder permission was revoked (e.g. externally, or after a reboot without persist);
             // leave the existing cached song index untouched rather than crashing.
         }
     }
 
-    private suspend fun rescanInternal(playlistId: Long, folderUri: String) = coroutineScope {
+    private suspend fun rescanInternal(playlistId: Long, folderUri: String, includeSubfolders: Boolean) = coroutineScope {
         val treeUri = Uri.parse(folderUri)
         // Null - as opposed to empty - means the folder couldn't be read at all: permission
         // revoked, an SD card or USB drive removed, the folder renamed. That has to leave the
         // index alone. Treating it as "the folder is now empty" marked every song as deleted and
         // wiped the whole playlist, renames and all, until the folder came back.
-        val found = listAudioFiles(treeUri) ?: return@coroutineScope
+        val found = listAudioFiles(treeUri, includeSubfolders) ?: return@coroutineScope
         val existing = songDao.getByPlaylist(playlistId).associateBy { it.documentUri }
         if (found.isEmpty() && existing.isEmpty()) return@coroutineScope
 
@@ -130,11 +135,27 @@ class PlaylistScanner(
      * made a large playlist sit empty for the best part of a minute. Querying the children
      * collection directly returns every column for every file in one go.
      */
-    private fun listAudioFiles(treeUri: Uri): List<ScannedFile>? {
-        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
-            treeUri,
-            DocumentsContract.getTreeDocumentId(treeUri),
-        )
+    private fun listAudioFiles(treeUri: Uri, includeSubfolders: Boolean): List<ScannedFile>? {
+        val files = ArrayList<ScannedFile>()
+        // The root has to be readable; a subfolder that can't be is skipped, not fatal.
+        val pending = ArrayDeque<Pair<String, Int>>()
+        val rootFolders = listFolder(treeUri, DocumentsContract.getTreeDocumentId(treeUri), files) ?: return null
+        if (includeSubfolders) rootFolders.forEach { pending.addLast(it to 1) }
+        while (pending.isNotEmpty() && files.size < MAX_FILES) {
+            val (folderId, depth) = pending.removeFirst()
+            val subfolders = listFolder(treeUri, folderId, files) ?: continue
+            // Bounded, so a deep or looping tree (some providers expose links) can't run away.
+            if (depth < MAX_DEPTH) subfolders.forEach { pending.addLast(it to depth + 1) }
+        }
+        return files
+    }
+
+    /**
+     * Adds one folder's audio files to [into] and returns its subfolders' ids, or null if the
+     * folder couldn't be read.
+     */
+    private fun listFolder(treeUri: Uri, folderId: String, into: MutableList<ScannedFile>): List<String>? {
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, folderId)
         val projection = arrayOf(
             DocumentsContract.Document.COLUMN_DOCUMENT_ID,
             DocumentsContract.Document.COLUMN_DISPLAY_NAME,
@@ -143,7 +164,7 @@ class PlaylistScanner(
             DocumentsContract.Document.COLUMN_LAST_MODIFIED,
         )
 
-        val files = ArrayList<ScannedFile>()
+        val folders = ArrayList<String>()
         try {
             // A null cursor is the provider saying it couldn't answer - not that the folder is empty.
             val queried = context.contentResolver.query(childrenUri, projection, null, null, null)
@@ -151,11 +172,14 @@ class PlaylistScanner(
             queried.use { cursor ->
                 while (cursor.moveToNext()) {
                     val mimeType = cursor.getString(2)
-                    if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) continue
                     val name = cursor.getString(1) ?: continue
+                    if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
+                        if (name != REMOVED_SONGS_FOLDER_NAME) cursor.getString(0)?.let(folders::add)
+                        continue
+                    }
                     if (!isAudioFile(name, mimeType)) continue
                     val documentId = cursor.getString(0) ?: continue
-                    files += ScannedFile(
+                    into += ScannedFile(
                         // Matches what DocumentFile would have produced for the same child, so
                         // rows already stored against that uri still line up.
                         documentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId).toString(),
@@ -166,10 +190,10 @@ class PlaylistScanner(
                 }
             }
         } catch (t: Throwable) {
-            Log.e("PlaylistScanner", "Could not list $treeUri", t)
+            Log.e("PlaylistScanner", "Could not list $folderId in $treeUri", t)
             return null
         }
-        return files
+        return folders
     }
 
     /**

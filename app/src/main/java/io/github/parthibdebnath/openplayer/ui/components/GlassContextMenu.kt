@@ -1,5 +1,7 @@
 package io.github.parthibdebnath.openplayer.ui.components
 
+import androidx.compose.runtime.LaunchedEffect
+import io.github.parthibdebnath.openplayer.util.LocalHaptics
 import io.github.parthibdebnath.openplayer.ui.theme.LocalAppColors
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -41,6 +43,9 @@ fun GlassContextMenu(
     offset: IntOffset = IntOffset.Zero,
 ) {
     if (!expanded) return
+    val haptics = LocalHaptics.current
+    // A menu opening is mostly a long-press landing; the tap back confirms it took.
+    LaunchedEffect(Unit) { haptics?.click() }
     Popup(
         offset = offset,
         onDismissRequest = onDismissRequest,
@@ -73,6 +78,7 @@ fun GlassContextMenu(
                             indication = null,
                         ) {
                             onDismissRequest()
+                            haptics?.click()
                             item.onClick()
                         }
                         .padding(vertical = 8.dp),

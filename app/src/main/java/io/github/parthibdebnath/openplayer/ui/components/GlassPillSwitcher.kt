@@ -1,5 +1,9 @@
 package io.github.parthibdebnath.openplayer.ui.components
 
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
+import androidx.compose.ui.graphics.vector.ImageVector
+import io.github.parthibdebnath.openplayer.util.LocalHaptics
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -82,13 +86,20 @@ fun GlassPillSwitcher(
     height: Dp = 50.dp,
     fontSizeSp: Float = 13.33f,
     floating: Boolean = false,
+    /** Shown in place of the labels when given, which then serve as their descriptions. */
+    icons: List<ImageVector>? = null,
 ) {
+    val haptics = LocalHaptics.current
+    val select: (Int) -> Unit = { index ->
+        if (index != selectedIndex) haptics?.tick()
+        onSelect(index)
+    }
     if (LocalGlassEnabled.current && USE_APPLE_GLASS) {
-        AppleGlassSwitcher(items, selectedIndex, onSelect, modifier, height, fontSizeSp, floating)
+        AppleGlassSwitcher(items, selectedIndex, select, modifier, height, fontSizeSp, floating, icons)
     } else if (LocalGlassEnabled.current) {
-        LiquidPillSwitcher(items, selectedIndex, onSelect, modifier, height, fontSizeSp, floating)
+        LiquidPillSwitcher(items, selectedIndex, select, modifier, height, fontSizeSp, floating, icons)
     } else {
-        FlatPillSwitcher(items, selectedIndex, onSelect, modifier, height, fontSizeSp)
+        FlatPillSwitcher(items, selectedIndex, select, modifier, height, fontSizeSp, icons)
     }
 }
 
@@ -100,6 +111,7 @@ private fun FlatPillSwitcher(
     modifier: Modifier,
     height: Dp,
     fontSizeSp: Float,
+    icons: List<ImageVector>?,
 ) {
     BoxWithConstraints(
         modifier = modifier
@@ -138,15 +150,27 @@ private fun FlatPillSwitcher(
                         ) { onSelect(index) },
                     contentAlignment = Alignment.Center,
                 ) {
-                    PillLabel(label, bold = index == selectedIndex, fontSizeSp = fontSizeSp)
+                    PillLabel(label, bold = index == selectedIndex, fontSizeSp = fontSizeSp, icon = icons?.getOrNull(index))
                 }
             }
         }
     }
 }
 
+/** Icons in a switcher: the size iOS draws tab bar symbols at. */
+internal val SWITCHER_ICON_SIZE = 26.dp
+
 @Composable
-private fun PillLabel(label: String, bold: Boolean, fontSizeSp: Float) {
+internal fun PillLabel(label: String, bold: Boolean, fontSizeSp: Float, icon: ImageVector? = null) {
+    if (icon != null) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = LocalAppColors.current.onBackground,
+            modifier = Modifier.size(SWITCHER_ICON_SIZE),
+        )
+        return
+    }
     Text(
         text = label,
         color = LocalAppColors.current.onBackground,
@@ -184,6 +208,7 @@ private fun LiquidPillSwitcher(
     height: Dp,
     fontSizeSp: Float,
     floating: Boolean,
+    icons: List<ImageVector>?,
 ) {
     val colors = LocalAppColors.current
     val trackShape = RoundedCornerShape(height / 2)
@@ -262,7 +287,7 @@ private fun LiquidPillSwitcher(
                         },
                     contentAlignment = Alignment.Center,
                 ) {
-                    PillLabel(label, bold = index == selectedIndex, fontSizeSp = fontSizeSp)
+                    PillLabel(label, bold = index == selectedIndex, fontSizeSp = fontSizeSp, icon = icons?.getOrNull(index))
                 }
             }
         }

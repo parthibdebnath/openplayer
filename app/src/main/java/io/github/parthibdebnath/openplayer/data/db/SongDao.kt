@@ -38,6 +38,24 @@ interface SongDao {
     @Query("UPDATE songs SET displayName = :displayName WHERE id = :id")
     suspend fun updateDisplayName(id: Long, displayName: String)
 
+    @Query("UPDATE songs SET resumePositionMs = :positionMs WHERE id = :id")
+    suspend fun updateResumePosition(id: Long, positionMs: Long)
+
+    /** Puts a saved name back on an imported playlist's song, matched by file name. */
+    @Query("UPDATE songs SET displayName = :displayName WHERE playlistId = :playlistId AND fileName = :fileName")
+    suspend fun renameByFileName(playlistId: Long, fileName: String, displayName: String)
+
+    /**
+     * Songs in every playlist whose name or artist contains the pattern (already wrapped in %
+     * and escaped). A plain scan: tens of thousands of rows take a few milliseconds, and a
+     * full-text index would mean another table kept in step with every write.
+     */
+    @Query(
+        "SELECT * FROM songs WHERE displayName LIKE :pattern ESCAPE '\\' OR artist LIKE :pattern ESCAPE '\\' " +
+            "ORDER BY displayName COLLATE NOCASE LIMIT :limit",
+    )
+    suspend fun search(pattern: String, limit: Int): List<SongEntity>
+
     @Query("SELECT id FROM songs")
     suspend fun getAllIds(): List<Long>
 

@@ -69,6 +69,7 @@ fun FileScreen(
                     authGateManager = authGateManager,
                     onOpenPlaylist = { id -> destination = FileDestination.PlaylistSongs(id) },
                     onOpenMultiPlaylist = { destination = FileDestination.MultiPlaylist },
+                    onOpenSearch = { destination = FileDestination.Search },
                 )
                 is FileDestination.MultiPlaylist -> MultiPlaylistScreen(
                     viewModel = viewModel,
@@ -86,6 +87,7 @@ fun FileScreen(
                     onOpenLicences = { destination = FileDestination.Licences },
                 )
                 is FileDestination.Licences -> LicencesScreen()
+                is FileDestination.Search -> SearchScreen(viewModel = viewModel)
             }
         }
         NonHomePlayerBar(

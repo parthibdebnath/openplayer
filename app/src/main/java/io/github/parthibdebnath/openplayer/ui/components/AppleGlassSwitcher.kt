@@ -1,5 +1,6 @@
 package io.github.parthibdebnath.openplayer.ui.components
 
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.spring
@@ -148,6 +149,7 @@ internal fun AppleGlassSwitcher(
     height: Dp,
     fontSizeSp: Float,
     floating: Boolean,
+    icons: List<ImageVector>? = null,
 ) {
     val colors = LocalAppColors.current
     val light = colors.isLightBackground
@@ -170,6 +172,7 @@ internal fun AppleGlassSwitcher(
         // Read through these in the touch handler, which outlives recompositions: a captured
         // selectedIndex went stale, and a tap on the tab that had since become current was ignored.
         val currentOnSelect by rememberUpdatedState(onSelect)
+        val haptics = io.github.parthibdebnath.openplayer.util.LocalHaptics.current
         val scope = rememberCoroutineScope()
         val motion = remember(scope, count) { SelectionMotion(scope, selectedIndex.toFloat(), count) }
         LaunchedEffect(selectedIndex) {
@@ -240,7 +243,7 @@ internal fun AppleGlassSwitcher(
                         },
                     contentAlignment = Alignment.Center,
                 ) {
-                    SwitcherLabel(label, bold = false, fontSizeSp = fontSizeSp)
+                    PillLabel(label, bold = false, fontSizeSp = fontSizeSp, icon = icons?.getOrNull(index))
                 }
             }
         }
@@ -273,7 +276,7 @@ internal fun AppleGlassSwitcher(
                 .padding(horizontal = inset),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            items.forEach { label ->
+            items.forEachIndexed { index, label ->
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -285,7 +288,7 @@ internal fun AppleGlassSwitcher(
                         },
                     contentAlignment = Alignment.Center,
                 ) {
-                    SwitcherLabel(label, bold = true, fontSizeSp = fontSizeSp)
+                    PillLabel(label, bold = true, fontSizeSp = fontSizeSp, icon = icons?.getOrNull(index))
                 }
             }
         }
@@ -347,6 +350,7 @@ internal fun AppleGlassSwitcher(
                         if (onThumb) motion.press()
                         var dragging = false
                         var travelled = 0f
+                        var detent = motion.value.value.roundToInt()
                         while (true) {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
@@ -360,7 +364,14 @@ internal fun AppleGlassSwitcher(
                             }
                             if (dragging) {
                                 change.consume()
-                                motion.follow((change.position.x - insetPx - itemWidth / 2f) / itemWidth)
+                                val target = (change.position.x - insetPx - itemWidth / 2f) / itemWidth
+                                motion.follow(target)
+                                // A detent each time the lens passes onto another item.
+                                val over = target.roundToInt().coerceIn(0, count - 1)
+                                if (over != detent) {
+                                    detent = over
+                                    haptics?.tick()
+                                }
                                 // Past either end the bar itself gives a little.
                                 val x = change.position.x
                                 if (x < insetPx || x > widthPx - insetPx) motion.nudgePanel(dx)
@@ -383,16 +394,4 @@ internal fun AppleGlassSwitcher(
                 },
         )
     }
-}
-
-@Composable
-private fun SwitcherLabel(label: String, bold: Boolean, fontSizeSp: Float) {
-    Text(
-        text = label,
-        color = LocalAppColors.current.onBackground,
-        fontFamily = InterFontFamily,
-        fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
-        fontSize = fontSizeSp.sp,
-        maxLines = 1,
-    )
 }

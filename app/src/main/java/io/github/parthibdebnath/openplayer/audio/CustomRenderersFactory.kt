@@ -12,6 +12,8 @@ import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.RenderersFactory
 import androidx.media3.exoplayer.audio.AudioRendererEventListener
 import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.audio.SilenceSkippingAudioProcessor
+import androidx.media3.common.audio.SonicAudioProcessor
 import androidx.media3.exoplayer.audio.MediaCodecAudioRenderer
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.metadata.MetadataOutput
@@ -57,7 +59,13 @@ class CustomRenderersFactory(
         metadataRendererOutput: MetadataOutput,
     ): Array<Renderer> {
         val sink = DefaultAudioSink.Builder(context)
-            .setAudioProcessors(arrayOf<AudioProcessor>(reverbAudioProcessor, threeDAudioProcessor))
+            .setAudioProcessorChain(
+                DefaultAudioSink.DefaultAudioProcessorChain(
+                    arrayOf<AudioProcessor>(reverbAudioProcessor, threeDAudioProcessor),
+                    musicSilenceSkipper(),
+                    SonicAudioProcessor(),
+                ),
+            )
             .build()
         return arrayOf(
             MediaCodecAudioRenderer(
@@ -101,3 +109,21 @@ fun audioMediaSourceFactory(context: Context): MediaSource.Factory {
     }
     return ProgressiveMediaSource.Factory(DefaultDataSource.Factory(context), extractors)
 }
+
+/**
+ * "Skip silence" tuned for music. ExoPlayer's defaults are for speech - anything under about
+ * -30 dB for a tenth of a second counts as silence - which in music trims quiet passages, and in
+ * classical music whole pianissimo bars. Here only near-true silence (under about -57 dB) lasting
+ * at least a second is cut, down to at most two seconds, so the gaps go but the music doesn't,
+ * and songs don't run into each other.
+ *
+ * The silence kept has to be at least half the minimum silence: the processor asserts it, and a
+ * shorter keep crashed playback the moment a long silence was reached.
+ */
+private fun musicSilenceSkipper() = SilenceSkippingAudioProcessor(
+    /* minimumSilenceDurationUs= */ 1_000_000L,
+    /* silenceRetentionRatio= */ 0.2f,
+    /* maxSilenceToKeepDurationUs= */ 2_000_000L,
+    /* minVolumeToKeepPercentageWhenMuting= */ 10,
+    /* silenceThresholdLevel= */ 48,
+)

@@ -1,5 +1,6 @@
 package io.github.parthibdebnath.openplayer.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -28,4 +29,6 @@ data class SongEntity(
     val sizeBytes: Long,
     val lastModified: Long,
     val sortIndex: Long,
+    /** Where a long track was left off, to pick up from next time; zero means from the start. */
+    @ColumnInfo(defaultValue = "0") val resumePositionMs: Long = 0L,
 )

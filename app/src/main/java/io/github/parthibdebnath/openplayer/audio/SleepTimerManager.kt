@@ -92,6 +92,9 @@ class SleepTimerManager(
         _state.value = SleepTimerState()
     }
 
+    /** Time left on a running timer; meaningless when none is running. */
+    fun remainingMs(): Long = (endTimestampMs - SystemClock.elapsedRealtime()).coerceAtLeast(0)
+
     /** Whether the engine should let the current song finish and then stop, rather than advancing. */
     fun isStopAfterCurrentSongPending(): Boolean = stopAfterCurrentSongPending
 

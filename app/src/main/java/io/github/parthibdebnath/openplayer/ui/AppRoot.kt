@@ -1,8 +1,16 @@
 package io.github.parthibdebnath.openplayer.ui
 
+import androidx.compose.foundation.shape.RoundedCornerShape
+import io.github.parthibdebnath.openplayer.util.LocalHaptics
+import io.github.parthibdebnath.openplayer.util.Haptics
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.PlayCircle
+import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -50,6 +58,14 @@ import io.github.parthibdebnath.openplayer.util.BrightnessVolumeController
 import io.github.parthibdebnath.openplayer.viewmodel.MainViewModel
 
 private val TOP_LEVEL_TABS = listOf("File", "Play", "SFX")
+private val TOP_LEVEL_ICONS = listOf(Icons.Rounded.LibraryMusic, Icons.Rounded.PlayCircle, Icons.Rounded.GraphicEq)
+
+private val TAB_BAR_HEIGHT = 56.dp
+private val TAB_BAR_BOTTOM_MARGIN = 12.dp
+private val TAB_BAR_MAX_WIDTH = 300.dp
+
+/** Space each screen leaves free at the bottom for the floating tab bar, with a gap above it. */
+private val TAB_BAR_RESERVE = TAB_BAR_HEIGHT + TAB_BAR_BOTTOM_MARGIN + 8.dp
 
 @Composable
 fun AppRoot(
@@ -109,7 +125,12 @@ fun AppRoot(
     // overlay, which sit outside the screens, can reach it.
     val backdrop = remember { GlassBackdrop() }
 
+    val context = LocalContext.current
+    val haptics = remember(context) { Haptics(context.applicationContext) }
+    haptics.strength = settings.hapticStrength
+
     CompositionLocalProvider(
+        LocalHaptics provides haptics,
         LocalGlassBackdrop provides backdrop,
         LocalGlassEnabled provides settings.glassTheming,
         LocalHideIconBackgrounds provides settings.hideIconBackgrounds,
@@ -117,24 +138,26 @@ fun AppRoot(
         LocalAppColors provides appColors,
     ) {
         Box(modifier = modifier.fillMaxSize().background(appColors.background)) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                GlassScreenRoot(
-                    backdrop = backdrop,
-                    modifier = Modifier
-                        .weight(1f)
-                        .tabSwipe { direction ->
-                            selectedTab = (selectedTab + direction).coerceIn(0, TOP_LEVEL_TABS.lastIndex)
-                        },
-                ) {
-                    // Retains each tab's saveable state - where the File tab had navigated to, its
-                    // scroll position - so switching back doesn't rebuild from scratch.
-                    saveableStateHolder.SaveableStateProvider(selectedTab) {
+            // The screens fill the whole display and the tab bar floats over them, rather than
+            // taking a strip of its own. Each screen leaves room at the bottom for the bar.
+            GlassScreenRoot(
+                backdrop = backdrop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .tabSwipe { direction ->
+                        selectedTab = (selectedTab + direction).coerceIn(0, TOP_LEVEL_TABS.lastIndex)
+                    },
+            ) {
+                val screenModifier = Modifier.fillMaxSize().padding(bottom = TAB_BAR_RESERVE)
+                // Retains each tab's saveable state - where the File tab had navigated to, its
+                // scroll position - so switching back doesn't rebuild from scratch.
+                saveableStateHolder.SaveableStateProvider(selectedTab) {
                     when (selectedTab) {
                         0 -> FileScreen(
                             viewModel = viewModel,
                             authGateManager = authGateManager,
                             resetSignal = fileResetSignal,
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = screenModifier,
                         )
                         1 -> PlayScreen(
                             viewModel = viewModel,
@@ -144,25 +167,29 @@ fun AppRoot(
                                 gesturePercent = percent
                             },
                             onOpenLibrary = { selectedTab = 0 },
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = screenModifier,
                         )
-                        2 -> SfxScreen(viewModel = viewModel, modifier = Modifier.fillMaxSize())
-                    }
+                        2 -> SfxScreen(viewModel = viewModel, modifier = screenModifier)
                     }
                 }
-                GlassPillSwitcher(
-                    items = TOP_LEVEL_TABS,
-                    floating = true,
-                    selectedIndex = selectedTab,
-                    onSelect = { index ->
-                        if (index == 0 && selectedTab == 0) fileResetSignal++
-                        selectedTab = index
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 18.dp, vertical = 8.dp),
-                )
             }
+            GlassPillSwitcher(
+                items = TOP_LEVEL_TABS,
+                icons = TOP_LEVEL_ICONS,
+                floating = true,
+                selectedIndex = selectedTab,
+                onSelect = { index ->
+                    if (index == 0 && selectedTab == 0) fileResetSignal++
+                    selectedTab = index
+                },
+                height = TAB_BAR_HEIGHT,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = TAB_BAR_BOTTOM_MARGIN)
+                    // A compact capsule, centred: three icons don't need the whole width.
+                    .widthIn(max = TAB_BAR_MAX_WIDTH)
+                    .padding(horizontal = 18.dp),
+            )
 
             if (openFailed) {
                 GlassNotification(
@@ -173,7 +200,9 @@ fun AppRoot(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .statusBarsPadding()
-                        .padding(horizontal = 18.dp, vertical = 12.dp),
+                        .padding(horizontal = 18.dp, vertical = 12.dp)
+                        // Floats over the screen; see SettingsScreen's folder prompt.
+                        .background(appColors.background, RoundedCornerShape(10.dp)),
                 )
             }
 

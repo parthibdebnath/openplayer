@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- Held only while music is actually playing; see PlaybackEngine. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Haptic feedback, at the strength picked in Settings; see util/Haptics. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:name=".OpenPlayerApplication"
