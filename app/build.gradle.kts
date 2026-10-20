@@ -24,8 +24,8 @@ android {
         applicationId = "io.github.parthibdebnath.openplayer"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.1.0-beta.3"
+        versionCode = 4
+        versionName = "0.1.0-beta.4"
     }
 
     signingConfigs {
@@ -61,9 +61,18 @@ android {
         compose = true
     }
 
+    // The app is English-only, but every library ships its strings in eighty-odd languages, all of
+    // which ended up in resources.arsc. Only the system's own dialogs would ever show them.
+    androidResources {
+        localeFilters += listOf("en")
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            // Kotlin reflection metadata and coroutine debug-agent data. Nothing in the app uses
+            // kotlin-reflect or the debug agent, so these were dead weight in every install.
+            excludes += listOf("/kotlin/**", "/META-INF/*.version", "/DebugProbesKt.bin", "/kotlin-tooling-metadata.json")
         }
     }
 }
@@ -97,10 +106,7 @@ dependencies {
     ksp(libs.room.compiler)
 
     implementation(libs.datastore.preferences)
-    implementation(libs.biometric)
     implementation(libs.documentfile)
-    implementation(libs.fragment.ktx)
-    implementation(libs.haze)
 
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)

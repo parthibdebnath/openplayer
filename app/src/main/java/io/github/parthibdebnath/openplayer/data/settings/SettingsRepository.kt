@@ -1,6 +1,7 @@
 package io.github.parthibdebnath.openplayer.data.settings
 
 import android.content.Context
+import android.text.format.DateFormat
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -38,6 +39,7 @@ object SettingsDefaults {
     const val TWO_FINGER_BRIGHTNESS_GESTURE = true
     const val THREE_FINGER_VOLUME_GESTURE = true
     const val GLASS_THEMING = false
+    /** Used only where there's no phone setting to follow; see [SettingsRepository.snapshot]. */
     const val TWENTY_FOUR_HOUR_CLOCK = false
     const val SHUFFLE_SEED_LOCKED = false
     const val CROSSFADE_MS = 0
@@ -53,6 +55,9 @@ object SettingsDefaults {
 
     /** On = the song you left off on starts again from 0:00 when the app is reopened. */
     const val RESTART_SONG_ON_OPEN = false
+
+    /** Lowering rather than pausing, so a game or a notification doesn't stop the music. */
+    val OTHER_APP_SOUND = OtherAppSound.LOWER_VOLUME
 }
 
 /** Every setting at once, as the UI reads them. */
@@ -74,6 +79,7 @@ data class SettingsSnapshot(
     val scrollLongTitles: Boolean = SettingsDefaults.SCROLL_LONG_TITLES,
     val restartSongOnOpen: Boolean = SettingsDefaults.RESTART_SONG_ON_OPEN,
     val songSort: SongSort = SongSort.NAME,
+    val otherAppSound: OtherAppSound = SettingsDefaults.OTHER_APP_SOUND,
 )
 
 /**
@@ -101,6 +107,7 @@ class SettingsRepository(private val context: Context) {
         val SCROLL_LONG_TITLES = booleanPreferencesKey("scroll_long_titles")
         val RESTART_SONG_ON_OPEN = booleanPreferencesKey("restart_song_on_open")
         val SONG_SORT = stringPreferencesKey("song_sort")
+        val OTHER_APP_SOUND = stringPreferencesKey("other_app_sound")
 
         /** Settings that no longer exist, cleared out by [prepare]. */
         val RETIRED = listOf(booleanPreferencesKey("invert_contrast"))
@@ -121,7 +128,9 @@ class SettingsRepository(private val context: Context) {
             twoFingerBrightnessGesture = p[Keys.TWO_FINGER_BRIGHTNESS_GESTURE] ?: SettingsDefaults.TWO_FINGER_BRIGHTNESS_GESTURE,
             threeFingerVolumeGesture = p[Keys.THREE_FINGER_VOLUME_GESTURE] ?: SettingsDefaults.THREE_FINGER_VOLUME_GESTURE,
             glassTheming = p[Keys.GLASS_THEMING] ?: SettingsDefaults.GLASS_THEMING,
-            twentyFourHourClock = p[Keys.TWENTY_FOUR_HOUR_CLOCK] ?: SettingsDefaults.TWENTY_FOUR_HOUR_CLOCK,
+            // Until it's been set in the app, the clock matches the phone's own 12/24-hour choice
+            // rather than always starting in 12-hour, which looked wrong on 24-hour phones.
+            twentyFourHourClock = p[Keys.TWENTY_FOUR_HOUR_CLOCK] ?: DateFormat.is24HourFormat(context),
             shuffleSeed = p[Keys.SHUFFLE_SEED] ?: "",
             shuffleSeedLocked = p[Keys.SHUFFLE_SEED_LOCKED] ?: SettingsDefaults.SHUFFLE_SEED_LOCKED,
             crossfadeMs = crossfadeOf(p),
@@ -132,6 +141,7 @@ class SettingsRepository(private val context: Context) {
             scrollLongTitles = p[Keys.SCROLL_LONG_TITLES] ?: SettingsDefaults.SCROLL_LONG_TITLES,
             restartSongOnOpen = p[Keys.RESTART_SONG_ON_OPEN] ?: SettingsDefaults.RESTART_SONG_ON_OPEN,
             songSort = SongSort.fromName(p[Keys.SONG_SORT]),
+            otherAppSound = OtherAppSound.fromName(p[Keys.OTHER_APP_SOUND]),
         )
     }
 
@@ -145,6 +155,7 @@ class SettingsRepository(private val context: Context) {
         setting { it[Keys.RESTART_SONG_ON_OPEN] ?: SettingsDefaults.RESTART_SONG_ON_OPEN }
     val crossfadeMs: Flow<Int> = setting(::crossfadeOf)
     val songSort: Flow<SongSort> = setting { SongSort.fromName(it[Keys.SONG_SORT]) }
+    val otherAppSound: Flow<OtherAppSound> = setting { OtherAppSound.fromName(it[Keys.OTHER_APP_SOUND]) }
 
     /**
      * Empty only until [prepare] has run once. Falling back to a freshly generated seed here
@@ -172,6 +183,7 @@ class SettingsRepository(private val context: Context) {
     suspend fun setRestartSongOnOpen(value: Boolean) = set(Keys.RESTART_SONG_ON_OPEN, value)
     suspend fun setShuffleSeed(value: String) = set(Keys.SHUFFLE_SEED, value)
     suspend fun setSongSort(value: SongSort) = set(Keys.SONG_SORT, value.name)
+    suspend fun setOtherAppSound(value: OtherAppSound) = set(Keys.OTHER_APP_SOUND, value.name)
 
     /**
      * Rolls a new background colour if [today] isn't the day the current one was picked. Both the

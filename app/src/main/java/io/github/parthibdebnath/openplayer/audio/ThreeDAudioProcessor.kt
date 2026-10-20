@@ -6,6 +6,7 @@ import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor.AudioFormat
+import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.BaseAudioProcessor
 import androidx.media3.common.util.UnstableApi
 import io.github.parthibdebnath.openplayer.audio.dsp.CombFilter
@@ -164,7 +165,7 @@ class ThreeDAudioProcessor : BaseAudioProcessor() {
         const val BYTES_PER_STEREO_FRAME = 4
     }
 
-    override fun onFlush() {
+    override fun onFlush(streamMetadata: AudioProcessor.StreamMetadata) {
         if (::lowpassState.isInitialized) {
             lowpassState.fill(0f)
             roomCombs.forEach { channelCombs -> channelCombs.forEach { it.clear() } }
@@ -172,6 +173,6 @@ class ThreeDAudioProcessor : BaseAudioProcessor() {
     }
 
     override fun onReset() {
-        onFlush()
+        onFlush(AudioProcessor.StreamMetadata.DEFAULT)
     }
 }

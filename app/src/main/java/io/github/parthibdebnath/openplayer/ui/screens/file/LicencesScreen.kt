@@ -35,7 +35,7 @@ private class Component(val name: String, val copyright: String, val licence: St
 private val COMPONENTS = listOf(
     Component("Inter typeface", "Copyright 2020 The Inter Project Authors", OFL),
     Component(
-        "AndroidX: Jetpack Compose, Media3, Room, DataStore, Lifecycle, Activity, Fragment, Biometric, Core, DocumentFile",
+        "AndroidX: Jetpack Compose, Media3, Room, DataStore, Lifecycle, Activity, Core, DocumentFile",
         "Copyright The Android Open Source Project",
         APACHE_2,
     ),
@@ -45,7 +45,6 @@ private val COMPONENTS = listOf(
         "Copyright JetBrains s.r.o. and Kotlin Programming Language contributors",
         APACHE_2,
     ),
-    Component("Haze", "Copyright Chris Banes", APACHE_2),
 )
 
 /** Licence texts shipped in assets/licenses, keyed by the names above. */

@@ -226,9 +226,10 @@ fun PlayScreen(
         )
 
         // Only while playback has actually failed, and gone again once something plays.
-        playbackState.error?.let { message ->
+        // An error outranks a notice; both clear once something plays.
+        (playbackState.error?.let { "Can't play this song: $it" } ?: playbackState.notice)?.let { message ->
             Text(
-                text = "Can't play this song: $message",
+                text = message,
                 style = interTextStyle(12, bold = false),
                 color = LocalAppColors.current.onBackground.copy(alpha = 0.6f),
                 modifier = Modifier.align(Alignment.TopStart).padding(start = SCREEN_GUTTER, top = 2.dp),

@@ -37,6 +37,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -73,8 +74,8 @@ fun PlaylistSongsScreen(
     val songs by viewModel.viewedSongs.collectAsStateWithLifecycle()
     val scanning by viewModel.scanning.collectAsStateWithLifecycle()
     val settings by viewModel.settingsSnapshot.collectAsStateWithLifecycle()
-    val playback by viewModel.playbackUiState.collectAsStateWithLifecycle()
-    val currentSongId = playback.currentSong?.id
+    val currentSong by viewModel.currentSong.collectAsStateWithLifecycle()
+    val currentSongId = currentSong?.id
     val scope = rememberCoroutineScope()
 
     var searchOpen by remember { mutableStateOf(false) }
@@ -213,7 +214,11 @@ fun PlaylistSongsScreen(
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                 items(visibleSongs, key = { it.id }) { song ->
                     val isCurrent = song.id == currentSongId
-                    Box {
+                    // A file that couldn't be read when it was indexed - empty, damaged, or not audio
+                    // at all - is dimmed and says so, rather than looking like any other song and then
+                    // being silently skipped when it comes up.
+                    val unreadable = song.durationMs < 0
+                    Box(modifier = if (unreadable) Modifier.alpha(0.4f) else Modifier) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -249,7 +254,7 @@ fun PlaylistSongsScreen(
                             )
                             Spacer(Modifier.width(12.dp))
                             Text(
-                                text = song.artist,
+                                text = if (unreadable) "Can't be read" else song.artist,
                                 style = interTextStyle(20, bold = false),
                                 color = LocalAppColors.current.onBackground.copy(alpha = 0.6f),
                                 maxLines = 1,

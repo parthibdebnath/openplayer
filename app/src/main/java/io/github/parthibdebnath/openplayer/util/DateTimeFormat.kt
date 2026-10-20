@@ -32,7 +32,18 @@ fun formatDate(date: Date): String = dateFormat.format(date)
 
 fun formatDurationMs(ms: Long): String {
     val totalSeconds = (ms / 1000).coerceAtLeast(0)
-    val minutes = totalSeconds / 60
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
     val seconds = totalSeconds % 60
-    return String.format(Locale.getDefault(), "%d:%02d", minutes, seconds)
+    // Hours get their own field: a three-hour mix read "180:00". Built by hand rather than with
+    // String.format, which parses its pattern on every call and this runs several times a second.
+    return buildString(8) {
+        if (hours > 0) {
+            append(hours).append(':')
+            if (minutes < 10) append('0')
+        }
+        append(minutes).append(':')
+        if (seconds < 10) append('0')
+        append(seconds)
+    }
 }

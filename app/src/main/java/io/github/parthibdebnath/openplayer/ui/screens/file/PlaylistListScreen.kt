@@ -61,9 +61,9 @@ fun PlaylistListScreen(
 ) {
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val settings by viewModel.settingsSnapshot.collectAsStateWithLifecycle()
-    val playback by viewModel.playbackUiState.collectAsStateWithLifecycle()
+    val currentSong by viewModel.currentSong.collectAsStateWithLifecycle()
     val scanning by viewModel.scanning.collectAsStateWithLifecycle()
-    val playingPlaylistId = playback.currentSong?.playlistId
+    val playingPlaylistId = currentSong?.playlistId
     val scope = rememberCoroutineScope()
 
     var pendingFolderUri by remember { mutableStateOf<android.net.Uri?>(null) }

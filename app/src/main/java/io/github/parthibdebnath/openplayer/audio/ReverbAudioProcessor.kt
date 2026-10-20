@@ -6,6 +6,7 @@ import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor.AudioFormat
+import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.BaseAudioProcessor
 import androidx.media3.common.util.UnstableApi
 import io.github.parthibdebnath.openplayer.audio.dsp.AllpassFilter
@@ -158,7 +159,7 @@ class ReverbAudioProcessor : BaseAudioProcessor() {
         output.flip()
     }
 
-    override fun onFlush() {
+    override fun onFlush(streamMetadata: AudioProcessor.StreamMetadata) {
         if (::combs.isInitialized) {
             combs.forEach { channelCombs -> channelCombs.forEach { it.clear() } }
             allpasses.forEach { channelAllpasses -> channelAllpasses.forEach { it.clear() } }
@@ -167,7 +168,7 @@ class ReverbAudioProcessor : BaseAudioProcessor() {
     }
 
     override fun onReset() {
-        onFlush()
+        onFlush(AudioProcessor.StreamMetadata.DEFAULT)
     }
 
     companion object {

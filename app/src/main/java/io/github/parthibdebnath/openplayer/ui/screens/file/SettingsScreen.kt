@@ -48,6 +48,8 @@ import io.github.parthibdebnath.openplayer.ui.components.toHexString
 import io.github.parthibdebnath.openplayer.ui.components.GlassTextField
 import io.github.parthibdebnath.openplayer.ui.components.ToggleRow
 import io.github.parthibdebnath.openplayer.ui.components.glassSurface
+import io.github.parthibdebnath.openplayer.ui.components.GlassPillSwitcher
+import io.github.parthibdebnath.openplayer.data.settings.OtherAppSound
 import io.github.parthibdebnath.openplayer.ui.theme.interTextStyle
 import io.github.parthibdebnath.openplayer.util.AuthGateManager
 import io.github.parthibdebnath.openplayer.viewmodel.MainViewModel
@@ -153,6 +155,23 @@ fun SettingsScreen(
                     ) { viewModel.openBatteryOptimizationSettings() },
             )
         }
+        Spacer(Modifier.height(34.dp))
+        Text(text = "When other apps make sound", style = interTextStyle(20, bold = false), color = LocalAppColors.current.onBackground)
+        Spacer(Modifier.height(12.dp))
+        GlassPillSwitcher(
+            items = OtherAppSound.entries.map { it.label },
+            selectedIndex = settings.otherAppSound.ordinal,
+            onSelect = { viewModel.setOtherAppSound(OtherAppSound.entries[it]) },
+            height = 44.dp,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            // The exception is spelled out, so "keep playing" isn't read as a promise to talk over
+            // a video the user has just started.
+            text = "${settings.otherAppSound.description}. If another app starts its own music or video, openplayer pauses either way.",
+            style = interTextStyle(14, bold = false),
+            color = LocalAppColors.current.onBackground.copy(alpha = 0.6f),
+        )
         Spacer(Modifier.height(34.dp))
         ToggleRow(
             label = "Restart song on open",

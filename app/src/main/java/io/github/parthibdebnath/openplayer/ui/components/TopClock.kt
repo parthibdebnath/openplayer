@@ -36,7 +36,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import io.github.parthibdebnath.openplayer.util.formatClockTime
 import io.github.parthibdebnath.openplayer.util.formatDate
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.awaitCancellation
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import java.util.Date
 
 /**
@@ -45,8 +51,6 @@ import java.util.Date
  * previously the row collapsed to nothing and everything above it shifted.
  */
 private val PLAYLIST_LABEL_MIN_HEIGHT = 30.dp
-
-private const val MINUTE_MS = 60_000L
 
 /**
  * The header every screen shares: the clock, with the now-playing playlist name beneath it.
@@ -103,13 +107,29 @@ fun TopClock(
 ) {
     var now by remember { mutableStateOf(Date()) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val context = LocalContext.current
     LaunchedEffect(lifecycle) {
-        // Only while the app is visible, and only when the minute turns over - which is all the
-        // clock shows. It used to wake every second, in the background too.
+        // Only while the app is visible, and driven by the system's own minute tick, plus its
+        // time-set and time-zone broadcasts. Timing the next minute from the wall clock instead
+        // left the clock showing the old time for up to a minute after the phone's clock or time
+        // zone changed.
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            while (true) {
-                now = Date()
-                delay(MINUTE_MS - System.currentTimeMillis() % MINUTE_MS)
+            now = Date()
+            val receiver = object : BroadcastReceiver() {
+                override fun onReceive(ctx: Context?, intent: Intent?) {
+                    now = Date()
+                }
+            }
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_TIME_TICK)
+                addAction(Intent.ACTION_TIME_CHANGED)
+                addAction(Intent.ACTION_TIMEZONE_CHANGED)
+            }
+            ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+            try {
+                awaitCancellation()
+            } finally {
+                context.unregisterReceiver(receiver)
             }
         }
     }

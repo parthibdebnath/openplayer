@@ -31,7 +31,9 @@ import io.github.parthibdebnath.openplayer.ui.components.GestureOverlay
 import io.github.parthibdebnath.openplayer.ui.components.GestureType
 import io.github.parthibdebnath.openplayer.ui.components.GlassNotification
 import io.github.parthibdebnath.openplayer.ui.components.GlassPillSwitcher
+import io.github.parthibdebnath.openplayer.ui.components.GlassBackdrop
 import io.github.parthibdebnath.openplayer.ui.components.GlassScreenRoot
+import io.github.parthibdebnath.openplayer.ui.components.LocalGlassBackdrop
 import io.github.parthibdebnath.openplayer.ui.components.tabSwipe
 import io.github.parthibdebnath.openplayer.ui.screens.file.FileScreen
 import io.github.parthibdebnath.openplayer.ui.screens.play.PlayScreen
@@ -103,7 +105,12 @@ fun AppRoot(
         onBackground = contentColorFor(background),
     )
 
+    // The screen recording floating glass refracts; owned here so the tab bar and the gesture
+    // overlay, which sit outside the screens, can reach it.
+    val backdrop = remember { GlassBackdrop() }
+
     CompositionLocalProvider(
+        LocalGlassBackdrop provides backdrop,
         LocalGlassEnabled provides settings.glassTheming,
         LocalHideIconBackgrounds provides settings.hideIconBackgrounds,
         LocalScrollLongTitles provides settings.scrollLongTitles,
@@ -112,6 +119,7 @@ fun AppRoot(
         Box(modifier = modifier.fillMaxSize().background(appColors.background)) {
             Column(modifier = Modifier.fillMaxSize()) {
                 GlassScreenRoot(
+                    backdrop = backdrop,
                     modifier = Modifier
                         .weight(1f)
                         .tabSwipe { direction ->
@@ -144,6 +152,7 @@ fun AppRoot(
                 }
                 GlassPillSwitcher(
                     items = TOP_LEVEL_TABS,
+                    floating = true,
                     selectedIndex = selectedTab,
                     onSelect = { index ->
                         if (index == 0 && selectedTab == 0) fileResetSignal++

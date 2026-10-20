@@ -12,7 +12,12 @@ import io.github.parthibdebnath.openplayer.data.settings.PitchEffectState
 import io.github.parthibdebnath.openplayer.ui.components.EffectSlider
 import io.github.parthibdebnath.openplayer.ui.components.ToggleRow
 
-private fun signed(value: Int): String = if (value <= 0) "-${-value}" else "+$value"
+// Zero has no sign: "<= 0" put a minus on it, so an untouched pitch read "-0 st".
+private fun signed(value: Int): String = when {
+    value < 0 -> "-${-value}"
+    value > 0 -> "+$value"
+    else -> "0"
+}
 
 /** @param onUpdate see [ReverbTab] - transforms the current stored state, never a stale snapshot. */
 @Composable

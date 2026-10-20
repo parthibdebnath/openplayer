@@ -18,6 +18,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import io.github.parthibdebnath.openplayer.data.model.Song
 import io.github.parthibdebnath.openplayer.data.settings.EffectsState
+import io.github.parthibdebnath.openplayer.data.settings.OtherAppSound
 import io.github.parthibdebnath.openplayer.data.settings.PlaybackStateRepository
 import io.github.parthibdebnath.openplayer.data.settings.SavedPosition
 import io.github.parthibdebnath.openplayer.data.settings.SavedExternalSong
@@ -48,6 +49,8 @@ data class PlaybackUiState(
     val upcoming: List<Song> = emptyList(),
     /** Why the current song couldn't be played, worded for the listener; null when all is well. */
     val error: String? = null,
+    /** Why playback stopped when the listener didn't stop it themselves; null otherwise. */
+    val notice: String? = null,
 )
 
 /**
@@ -58,7 +61,11 @@ private class PlayerSlot(context: Context, audioAttributes: AudioAttributes) {
     val reverb = ReverbAudioProcessor()
     val threeD = ThreeDAudioProcessor()
 
-    val player: ExoPlayer = ExoPlayer.Builder(context, CustomRenderersFactory(context, reverb, threeD))
+    val player: ExoPlayer = ExoPlayer.Builder(
+        context,
+        CustomRenderersFactory(context, reverb, threeD),
+        audioMediaSourceFactory(context),
+    )
         // Focus is handled centrally by AudioFocusController instead of per-player - see there.
         .setAudioAttributes(audioAttributes, /* handleAudioFocus= */ false)
         .setHandleAudioBecomingNoisy(true)
@@ -127,6 +134,7 @@ class PlaybackEngine private constructor(context: Context) {
 
     private val focusController = AudioFocusController(
         context = appContext,
+        scope = engineScope,
         onPauseForFocusLoss = {
             // Reports whether this actually interrupted playback, which is what decides if the
             // interruption should resume us afterwards.
@@ -141,7 +149,21 @@ class PlaybackEngine private constructor(context: Context) {
             duckGain = if (ducking) DUCKED_GAIN else 1f
             applyVolumes()
         },
+        isPlaying = { slots.any { it.player.isPlaying } },
+        ownActivePlayers = { slots.count { it.player.isPlaying } },
+        onTakenOver = {
+            // Said on the Play screen, so music that stopped on its own isn't a mystery.
+            notice = "Paused because another app started playing"
+            syncState()
+        },
     )
+
+    /** What other apps' short sounds do to the music; see [io.github.parthibdebnath.openplayer.data.settings.OtherAppSound]. */
+    var otherAppSound: OtherAppSound
+        get() = focusController.mode
+        set(value) {
+            focusController.mode = value
+        }
 
     val outputDeviceManager = OutputDeviceManager(
         context = appContext,
@@ -157,9 +179,9 @@ class PlaybackEngine private constructor(context: Context) {
 
     private var currentShuffleSeed: String = ""
     private var lastError: String? = null
+    private var notice: String? = null
     private var dspBypassedAfterFailure = false
     private var retriesForCurrentItem = 0
-    private var tickCount = 0L
     private var duckGain: Float = 1f
 
     /** Guards against reacting to transitions we caused ourselves while rewriting the queue window. */
@@ -222,8 +244,8 @@ class PlaybackEngine private constructor(context: Context) {
                     anyPlaying.first { it }
                 }
                 advanceCrossfade()
-                if (tickCount++ % SYNC_EVERY_N_TICKS == 0L) syncState()
-                delay(TICK_MS)
+                syncState()
+                delay(nextTickDelayMs())
             }
         }
 
@@ -285,6 +307,7 @@ class PlaybackEngine private constructor(context: Context) {
             if (isPlaying) {
                 consecutiveUnplayable = 0
                 lastError = null
+                notice = null
             }
             syncState()
         }
@@ -341,6 +364,34 @@ class PlaybackEngine private constructor(context: Context) {
             Log.i("PlaybackEngine", "playback suppressed, reason=$playbackSuppressionReason")
             syncState()
         }
+    }
+
+    /**
+     * Whether anything is on screen to show the position. Set by the UI; while it's false the tick
+     * only needs to keep the crossfade on time.
+     */
+    @Volatile var uiVisible: Boolean = true
+
+    /**
+     * How long until the next tick. The tick used to run every 50 ms for as long as anything
+     * played - twenty wake-ups a second, screen off, crossfade off - when only an overlap in
+     * progress needs that. Otherwise it's paced to what's watching: a few times a second for the
+     * time readout, once a second in the background, and close to the start of a crossfade when
+     * one is coming up, so it still begins on time.
+     */
+    private fun nextTickDelayMs(): Long {
+        if (fadeProgress != null) return TICK_MS
+        val idle = if (uiVisible) UI_TICK_MS else BACKGROUND_TICK_MS
+        val fadeMs = crossfadeMs
+        if (fadeMs > 0) {
+            val playerRef = active.player
+            val duration = playerRef.duration
+            if (duration > 0) {
+                val untilFade = duration - playerRef.currentPosition - fadeMs
+                if (untilFade < idle) return untilFade.coerceIn(TICK_MS, idle)
+            }
+        }
+        return idle
     }
 
     // --- Crossfade ----------------------------------------------------------------------------
@@ -1084,12 +1135,19 @@ class PlaybackEngine private constructor(context: Context) {
             shuffleOn = queueManager.playOrder == PlayOrder.SHUFFLED,
             upcoming = queueManager.visibleUpcoming(),
             error = lastError,
+            notice = notice,
         )
     }
 
     companion object {
+        /** Tick while a crossfade is running, which moves the gains in small steps. */
         private const val TICK_MS = 50L
-        private const val SYNC_EVERY_N_TICKS = 5L // -> UI state refreshes ~4x a second
+
+        /** Tick while the time readout is on screen - about four refreshes a second. */
+        private const val UI_TICK_MS = 250L
+
+        /** Tick in the background, where nothing shows the position. */
+        private const val BACKGROUND_TICK_MS = 1_000L
 
         // Two, so there's one attempt left after the DSP has been dropped from the pipeline.
         private const val MAX_RETRIES_PER_ITEM = 2

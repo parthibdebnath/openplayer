@@ -29,6 +29,7 @@ import io.github.parthibdebnath.openplayer.data.repository.isExternal
 import io.github.parthibdebnath.openplayer.playback.PlaybackService
 import io.github.parthibdebnath.openplayer.data.settings.EffectsRepository
 import io.github.parthibdebnath.openplayer.data.settings.EffectsState
+import io.github.parthibdebnath.openplayer.data.settings.OtherAppSound
 import io.github.parthibdebnath.openplayer.data.settings.PitchEffectState
 import io.github.parthibdebnath.openplayer.data.settings.ReverbEffectState
 import io.github.parthibdebnath.openplayer.data.settings.ReverbPreset
@@ -56,6 +57,7 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -100,6 +102,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val playbackUiState: StateFlow<PlaybackUiState> = playbackEngine.uiState
 
+    /**
+     * Just the song that's loaded. Screens that only mark the current song - the song and playlist
+     * lists - read this instead of [playbackUiState], which changes with the position several times
+     * a second and recomposed whole lists of thousands of songs on every tick.
+     */
+    val currentSong: StateFlow<Song?> = playbackEngine.uiState
+        .map { it.currentSong }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
     // Loaded eagerly, so the SFX screen opens on the saved values rather than flashing defaults.
     val effectsState: StateFlow<EffectsState> = effectsRepository.effectsState
         .stateIn(viewModelScope, SharingStarted.Eagerly, EffectsState())
@@ -130,6 +142,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     val requireAuthToOpen: StateFlow<Boolean?> = settingsRepository.requireAuthToOpen
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /**
+     * Whether the app is on screen; see [onAppForegrounded] and [onAppBackgrounded].
+     * Declared ahead of `init`: viewModelScope runs on Main.immediate, so the daily-colour loop
+     * there reads this during construction, and declared below it was still null - a crash on
+     * every launch.
+     */
+    private val appVisible = MutableStateFlow(false)
 
     init {
         viewModelScope.launch(mutationExceptionHandler) {
@@ -179,23 +199,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             settingsRepository.crossfadeMs.collect { playbackEngine.crossfadeMs = it }
         }
         viewModelScope.launch {
+            settingsRepository.otherAppSound.collect { playbackEngine.otherAppSound = it }
+        }
+        viewModelScope.launch {
             // distinctUntilChanged matters: uiState re-emits on every position tick, and without
             // it the service was asked to start/stop on each one.
             // Keyed off "a song is loaded", not "audio is playing": tying it to isPlaying tore the
             // media session down the moment you hit pause, taking the notification with it and
             // leaving nothing to resume from.
-            combine(settingsRepository.notificationMediaControl, playbackEngine.uiState) { enabled, state ->
-                enabled to (state.currentSong != null)
-            }
+            //
+            // The service's real state is part of the key, not a flag remembering that it was
+            // started: the system stops it by itself after a long pause in the background, and
+            // a remembered "running" then kept it from ever being started again, so the
+            // notification never came back for the rest of the session.
+            combine(
+                settingsRepository.notificationMediaControl,
+                playbackEngine.uiState,
+                PlaybackService.running,
+                appVisible,
+            ) { enabled, state, running, visible -> ServiceInputs(enabled, state.currentSong != null, running, visible) }
                 .distinctUntilChanged()
-                .collect { (enabled, hasSong) -> updatePlaybackServiceState(enabled, hasSong) }
+                .collect { updatePlaybackServiceState(it) }
         }
     }
 
-    private var playbackServiceRunning = false
-
-    /** Whether the app is on screen; see [onAppForegrounded] and [onAppBackgrounded]. */
-    private val appVisible = MutableStateFlow(false)
+    private data class ServiceInputs(val enabled: Boolean, val hasSong: Boolean, val running: Boolean, val visible: Boolean)
 
     /** The installed version, for the About section. */
     val appVersion: String = runCatching {
@@ -265,16 +293,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Re-checks notification and battery access, either of which can change while the app is away. */
     fun onAppForegrounded() {
         appVisible.value = true
+        playbackEngine.uiVisible = true
         _batteryOptimized.value = isBatteryOptimized()
-        val blocked = !canPostNotifications()
-        _notificationsBlocked.value = blocked
-        // Recover automatically if access was granted from system settings while we were away.
-        if (!blocked && !playbackServiceRunning) {
-            updatePlaybackServiceState(
-                settingsSnapshot.value.notificationMediaControl,
-                playbackUiState.value.currentSong != null,
-            )
-        }
+        // Access granted from system settings while we were away is picked up by the service
+        // check, which re-runs now that the app is visible again.
+        _notificationsBlocked.value = !canPostNotifications()
     }
 
     /** Opens this app's system notification settings, the only place a denial can be undone. */
@@ -297,22 +320,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * to the foreground itself once it posts its notification, and no five-second
      * foreground-start deadline (whose expiry killed playback) applies.
      */
-    private fun updatePlaybackServiceState(notificationEnabled: Boolean, hasSong: Boolean) {
+    private fun updatePlaybackServiceState(inputs: ServiceInputs) {
         val app = getApplication<Application>()
         val canPost = canPostNotifications()
-        val shouldRun = notificationEnabled && hasSong && canPost
-        if (notificationEnabled && hasSong && !canPost) {
+        val shouldRun = inputs.enabled && inputs.hasSong && canPost
+        if (inputs.enabled && inputs.hasSong && !canPost) {
             Log.w("MainViewModel", "Media controls suppressed: notifications are blocked for this app")
         }
-        if (shouldRun && !playbackServiceRunning) {
+        // Only started while the app is on screen: a background start isn't allowed, and would
+        // throw. If the system stopped the service while we were away, coming back restarts it.
+        if (shouldRun && !inputs.running && inputs.visible) {
             runCatching {
                 app.startService(Intent(app, PlaybackService::class.java))
                 Log.i("MainViewModel", "Playback service started for media controls")
             }.onFailure { Log.w("MainViewModel", "Could not start playback service", it) }
-            playbackServiceRunning = true
-        } else if (!shouldRun && playbackServiceRunning) {
+        } else if (!shouldRun && inputs.running) {
             runCatching { app.stopService(Intent(app, PlaybackService::class.java)) }
-            playbackServiceRunning = false
         }
     }
 
@@ -375,6 +398,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setSongSort(sort: SongSort) = launchSafely { settingsRepository.setSongSort(sort) }
+
+    fun setOtherAppSound(value: OtherAppSound) = launchSafely { settingsRepository.setOtherAppSound(value) }
 
     // --- Opening a file from another app ------------------------------------------------------
 
@@ -531,6 +556,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Called when the app leaves the foreground; stops the music if background playback is off. */
     fun onAppBackgrounded() {
         appVisible.value = false
+        playbackEngine.uiVisible = false
         if (!settingsSnapshot.value.backgroundPlayback) playbackEngine.pause()
         playbackEngine.persistNow()
     }

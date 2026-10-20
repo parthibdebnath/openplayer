@@ -1,6 +1,5 @@
 package io.github.parthibdebnath.openplayer.ui.components
 
-import io.github.parthibdebnath.openplayer.ui.theme.LocalAppColors
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -27,16 +26,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import io.github.parthibdebnath.openplayer.ui.theme.LocalHazeState
 import io.github.parthibdebnath.openplayer.ui.theme.interTextStyle
-import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.HazeTint
-import dev.chrisbanes.haze.hazeEffect
+
+/**
+ * The overlay's scrim is always dark, so its text is always white. Following the page's content
+ * colour made it black on a light background - black text on a near-black scrim.
+ */
+private val OverlayContent = Color.White
 
 /** Full-screen brightness/volume gesture overlay: heavy blur, +/- guides, title, and percent. */
 @Composable
 fun GestureOverlay(type: GestureType?, percent: Int, modifier: Modifier = Modifier) {
-    val hazeState = LocalHazeState.current
     // The content stays composed through the fade-out, by which point `type` is already null.
     // Reading it directly there made a released volume gesture flash the brightness overlay on
     // its way out, so the last real gesture is what gets rendered.
@@ -51,34 +51,27 @@ fun GestureOverlay(type: GestureType?, percent: Int, modifier: Modifier = Modifi
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                // A guaranteed-visible solid scrim first, independent of whether the blur behind
-                // it renders strongly on this device - then the haze blur layered on top of that.
-                .background(Color.Black.copy(alpha = 0.72f))
-                .hazeEffect(
-                    state = hazeState,
-                    style = HazeStyle(
-                        tint = HazeTint(Color.Black.copy(alpha = 0.55f)),
-                        blurRadius = 64.dp,
-                        fallbackTint = HazeTint(Color.Black.copy(alpha = 0.8f)),
-                    ),
-                ),
+                // The page behind, frosted, under a scrim that keeps the text legible even where
+                // the blur can't run (Android 11 and earlier).
+                .glassBackdropBlur(48.dp)
+                .background(Color.Black.copy(alpha = 0.6f)),
         ) {
             Column(
                 modifier = Modifier.fillMaxSize().padding(vertical = 60.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.SpaceBetween,
             ) {
-                Icon(Icons.Filled.Add, contentDescription = null, tint = LocalAppColors.current.onBackground, modifier = Modifier.size(40.dp))
+                Icon(Icons.Filled.Add, contentDescription = null, tint = OverlayContent, modifier = Modifier.size(40.dp))
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = if (lastType == GestureType.VOLUME) "Volume" else "Brightness",
                         style = interTextStyle(40, bold = true),
-                        color = LocalAppColors.current.onBackground,
+                        color = OverlayContent,
                     )
                     Spacer(Modifier.size(14.dp))
-                    Text(text = "$percent%", style = interTextStyle(40, bold = false), color = LocalAppColors.current.onBackground)
+                    Text(text = "$percent%", style = interTextStyle(40, bold = false), color = OverlayContent)
                 }
-                Icon(Icons.Filled.Remove, contentDescription = null, tint = LocalAppColors.current.onBackground, modifier = Modifier.size(40.dp))
+                Icon(Icons.Filled.Remove, contentDescription = null, tint = OverlayContent, modifier = Modifier.size(40.dp))
             }
         }
     }

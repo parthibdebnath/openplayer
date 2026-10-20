@@ -2,9 +2,11 @@ package io.github.parthibdebnath.openplayer
 
 import android.Manifest
 import android.os.Build
+import android.content.pm.PackageManager
 import android.content.Intent
 import android.os.Bundle
 import android.os.SystemClock
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.activity.enableEdgeToEdge
@@ -35,7 +37,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.parthibdebnath.openplayer.ui.AppRoot
 import io.github.parthibdebnath.openplayer.ui.theme.OpenPlayerTheme
@@ -44,7 +45,7 @@ import io.github.parthibdebnath.openplayer.util.BrightnessVolumeController
 import io.github.parthibdebnath.openplayer.viewmodel.MainViewModel
 import kotlinx.coroutines.launch
 
-class MainActivity : FragmentActivity() {
+class MainActivity : ComponentActivity() {
     private val requestPermissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
 
     // The same instance the composables get from viewModel(): both are scoped to this activity.
@@ -54,7 +55,9 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         goFullscreen()
-        requestRuntimePermissions()
+        // Once per fresh start, not on every recreation, so a dialog dismissed by rotating the
+        // screen isn't immediately shown again.
+        if (savedInstanceState == null) requestRuntimePermissions()
         // Only on a fresh start: after recreation (or process death) the same intent comes back,
         // and replaying it would restart the opened song over whatever was playing since.
         if (savedInstanceState == null) handleOpenIntent(intent)
@@ -154,7 +157,9 @@ class MainActivity : FragmentActivity() {
      * read through AudioManager, which needs no Bluetooth permission.
      */
     private fun requestRuntimePermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
             requestPermissions.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
         }
     }

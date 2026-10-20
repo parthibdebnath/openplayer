@@ -48,8 +48,13 @@ class PlaybackQueueManager {
     }
 
     /** Combined next-up list for UI: explicit queue first, then the generated order. */
-    fun visibleUpcoming(count: Int = VISIBLE_UPCOMING_COUNT): List<Song> =
-        (explicitQueue + upcoming).take(count)
+    fun visibleUpcoming(count: Int = VISIBLE_UPCOMING_COUNT): List<Song> {
+        // Taken from the two lists directly: this runs on every UI refresh, and concatenating
+        // them first copied the entire remaining queue - tens of thousands of songs for a big
+        // library - several times a second, just to keep five.
+        val fromQueue = explicitQueue.take(count)
+        return if (fromQueue.size == count) fromQueue else fromQueue + upcoming.take(count - fromQueue.size)
+    }
 
     fun hasActiveSource(): Boolean = pool.isNotEmpty()
     fun hasHistory(): Boolean = history.isNotEmpty()

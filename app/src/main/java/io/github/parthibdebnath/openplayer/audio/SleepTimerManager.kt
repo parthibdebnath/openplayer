@@ -1,5 +1,6 @@
 package io.github.parthibdebnath.openplayer.audio
 
+import android.os.SystemClock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -38,13 +39,18 @@ class SleepTimerManager(
     private val _state = MutableStateFlow(SleepTimerState())
     val state: StateFlow<SleepTimerState> = _state.asStateFlow()
 
+    /**
+     * When the timer ends, on the elapsed-since-boot clock. Wall-clock time moved the deadline
+     * whenever the phone's clock did - a time zone change while travelling, a network time
+     * correction - so a 30-minute timer could fire hours early or late.
+     */
     private var endTimestampMs: Long = 0L
     private var tickJob: Job? = null
     private var stopAfterCurrentSongPending = false
 
     /** hr/min to prefill the overlay with when reopened while a timer is already running, rounded to the nearest minute. */
     fun remainingHoursMinutesForPrefill(): Pair<Int, Int> {
-        val remaining = (endTimestampMs - System.currentTimeMillis()).coerceAtLeast(0)
+        val remaining = (endTimestampMs - SystemClock.elapsedRealtime()).coerceAtLeast(0)
         val totalMinutes = Math.round(remaining / 60000.0).toInt()
         return (totalMinutes / 60) to (totalMinutes % 60)
     }
@@ -67,7 +73,7 @@ class SleepTimerManager(
         if (!unchanged) {
             lastConfirmedHours = clampedHours
             lastConfirmedMinutes = clampedMinutes
-            endTimestampMs = System.currentTimeMillis() + (clampedHours * 3600_000L) + (clampedMinutes * 60_000L)
+            endTimestampMs = SystemClock.elapsedRealtime() + (clampedHours * 3600_000L) + (clampedMinutes * 60_000L)
             startTicking()
         }
         _state.value = _state.value.copy(isActive = true, playLastSongToEnd = playLastSongToEnd)
@@ -105,7 +111,7 @@ class SleepTimerManager(
         tickJob?.cancel()
         tickJob = scope.launch {
             while (true) {
-                val remaining = endTimestampMs - System.currentTimeMillis()
+                val remaining = endTimestampMs - SystemClock.elapsedRealtime()
                 if (remaining <= 0) {
                     onTimerFired()
                     break
