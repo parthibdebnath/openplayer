@@ -26,6 +26,7 @@ import io.github.parthibdebnath.openplayer.data.repository.PlaylistRepository
 import io.github.parthibdebnath.openplayer.data.repository.REMOVED_SONGS_FOLDER_NAME
 import io.github.parthibdebnath.openplayer.data.model.SongSort
 import io.github.parthibdebnath.openplayer.data.repository.isExternal
+import io.github.parthibdebnath.openplayer.playback.MediaButtonSession
 import io.github.parthibdebnath.openplayer.playback.PlaybackService
 import io.github.parthibdebnath.openplayer.data.settings.EffectsRepository
 import io.github.parthibdebnath.openplayer.data.settings.EffectsState
@@ -406,6 +407,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else if (!shouldRun && inputs.running) {
             runCatching { app.stopService(Intent(app, PlaybackService::class.java)) }
         }
+        // Headset and media buttons work whether or not there's a notification: while the
+        // service isn't running (or about to be started just above), a session of the app's own
+        // takes them. See MediaButtonSession.
+        val serviceTakesButtons = inputs.running || (shouldRun && inputs.visible)
+        if (inputs.hasSong && !serviceTakesButtons) MediaButtonSession.start(app) else MediaButtonSession.stop()
     }
 
     private fun launchSafely(block: suspend () -> Unit) =
