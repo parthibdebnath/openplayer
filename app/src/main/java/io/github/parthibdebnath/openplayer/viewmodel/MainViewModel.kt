@@ -156,6 +156,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     private val appVisible = MutableStateFlow(false)
 
+    // Also ahead of `init`, for the same reason: the resume-position callback set up there uses
+    // it, and nothing but luck kept the engine from calling back before it was assigned.
+    // Everything `init` touches belongs above it.
+    private val resumeWriter = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+
     init {
         viewModelScope.launch(mutationExceptionHandler) {
             runCatching { settingsRepository.prepare() }
@@ -239,8 +244,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 .collect { updatePlaybackServiceState(it) }
         }
     }
-
-    private val resumeWriter = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
 
     private data class ServiceInputs(val enabled: Boolean, val hasSong: Boolean, val running: Boolean, val visible: Boolean)
 
