@@ -47,11 +47,7 @@ import androidx.compose.ui.util.lerp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlin.math.abs
-import kotlin.math.atan2
 import kotlin.math.ceil
-import kotlin.math.cos
-import kotlin.math.sin
-import kotlin.math.tanh
 import android.graphics.Paint as PlatformPaint
 import android.graphics.RenderEffect as PlatformRenderEffect
 import android.graphics.Shader as PlatformShader
@@ -70,8 +66,8 @@ import android.graphics.Shader as PlatformShader
  *    where the edge faces a light from the top left - and on the opposite edge, where that light
  *    leaves the glass - and dark along the edges at right angles to it.
  *  - Shadow. A soft, faint shadow grounds the element; larger elements cast deeper ones.
- *  - Interaction. Touch lights the glass from beneath the finger outwards, and it flexes: swells a
- *    little, and leans towards a drag as though it were a gel.
+ *  - Interaction. Touch lights the glass from beneath the finger outwards, and it swells a little.
+ *    (Apple's also leans towards a drag like a gel; here it doesn't, so controls feel solid.)
  *
  * Where glass may go follows Apple's rule too: only the floating layer of controls - buttons, the
  * tab bar, dialogs. Panels, fields and badges in the content get plain translucent fills instead,
@@ -527,14 +523,13 @@ internal fun DrawScope.drawGlassLayers(
 /** Press state for a glass control: how far it's pressed in, and where the finger is. */
 @Stable
 internal class GlassPress(private val scope: CoroutineScope) {
-    private val spec = spring<Float>(dampingRatio = 0.5f, stiffness = 300f, visibilityThreshold = 0.001f)
+    // No overshoot: a bouncier spring made the swell wobble, like jelly rather than glass.
+    private val spec = spring<Float>(dampingRatio = 1f, stiffness = 500f, visibilityThreshold = 0.001f)
     private val offsetSpec = spring(dampingRatio = 0.5f, stiffness = 300f, visibilityThreshold = Offset(0.5f, 0.5f))
     val progress = Animatable(0f, 0.001f)
     val position = Animatable(Offset.Zero, Offset.VectorConverter)
     var start = Offset.Zero
         private set
-
-    val drag: Offset get() = position.value - start
 
     fun down(at: Offset) {
         start = at
@@ -576,21 +571,16 @@ internal fun Modifier.glassPressInput(press: GlassPress): Modifier = pointerInpu
     }
 }
 
-/** The flex: a small swell when pressed, and a lean - eased so it never runs away - towards a drag. */
+/**
+ * A small, even swell while pressed. Only that: an earlier version also leaned the control towards
+ * a drag and stretched it along it, which made buttons feel soft and malleable rather than solid.
+ */
 internal fun Modifier.glassFlex(press: GlassPress, swell: Dp = 4.dp): Modifier = graphicsLayer {
-    val p = press.progress.value
-    val w = size.width
     val h = size.height
-    if (w <= 0f || h <= 0f) return@graphicsLayer
-    val scale = lerp(1f, 1f + swell.toPx() / h, p)
-    val maxOffset = size.minDimension
-    val drag = press.drag
-    translationX = maxOffset * tanh(0.05f * drag.x / maxOffset)
-    translationY = maxOffset * tanh(0.05f * drag.y / maxOffset)
-    val maxStretch = swell.toPx() / h
-    val angle = atan2(drag.y, drag.x)
-    scaleX = scale + maxStretch * abs(cos(angle) * drag.x / size.maxDimension) * (w / h).coerceAtMost(1f)
-    scaleY = scale + maxStretch * abs(sin(angle) * drag.y / size.maxDimension) * (h / w).coerceAtMost(1f)
+    if (h <= 0f) return@graphicsLayer
+    val scale = lerp(1f, 1f + swell.toPx() / h, press.progress.value)
+    scaleX = scale
+    scaleY = scale
 }
 
 // --- Surfaces -----------------------------------------------------------------------------------

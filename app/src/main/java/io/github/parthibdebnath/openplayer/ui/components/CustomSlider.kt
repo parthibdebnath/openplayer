@@ -201,7 +201,6 @@ fun CustomSlider(
                 state = thumb,
                 track = trackLayer,
                 center = { Offset(fraction() * (widthPx - thumbWidthPx) + thumbWidthPx / 2f, heightPx / 2f) },
-                fraction = ::fraction,
                 restSize = DpSize(THUMB_WIDTH, THUMB_HEIGHT),
                 color = contentColor,
                 pageColor = pageColor,

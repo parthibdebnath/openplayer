@@ -138,6 +138,7 @@ class SettingsRepository(private val context: Context) {
         val HAPTIC_STRENGTH = stringPreferencesKey("haptic_strength")
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
         val BACKUP_TO_FOLDERS = booleanPreferencesKey("backup_to_folders")
+        val UPCOMING_EXPANDED = booleanPreferencesKey("upcoming_expanded")
 
         /** Settings that no longer exist, cleared out by [prepare]. */
         val RETIRED = listOf(booleanPreferencesKey("invert_contrast"))
@@ -194,6 +195,9 @@ class SettingsRepository(private val context: Context) {
     val skipSilence: Flow<Boolean> = setting { it[Keys.SKIP_SILENCE] ?: SettingsDefaults.SKIP_SILENCE }
     val rememberLongTracks: Flow<Boolean> = setting { it[Keys.REMEMBER_LONG_TRACKS] ?: SettingsDefaults.REMEMBER_LONG_TRACKS }
 
+    /** Whether the Play screen's list of upcoming songs is open, so it's the same next time. */
+    val upcomingExpanded: Flow<Boolean> = setting { it[Keys.UPCOMING_EXPANDED] ?: false }
+
     /**
      * Empty only until [prepare] has run once. Falling back to a freshly generated seed here
      * instead meant every read of an unset seed produced a different one, so the shuffle order
@@ -226,6 +230,7 @@ class SettingsRepository(private val context: Context) {
     suspend fun setHapticStrength(value: HapticStrength) = set(Keys.HAPTIC_STRENGTH, value.name)
     suspend fun setKeepScreenOn(value: Boolean) = set(Keys.KEEP_SCREEN_ON, value)
     suspend fun setBackupToFolders(value: Boolean) = set(Keys.BACKUP_TO_FOLDERS, value)
+    suspend fun setUpcomingExpanded(value: Boolean) = set(Keys.UPCOMING_EXPANDED, value)
 
     /**
      * Every stored setting by its stored name, for a backup. Read generically rather than field

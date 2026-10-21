@@ -22,7 +22,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.parthibdebnath.openplayer.audio.OutputDevice
 import io.github.parthibdebnath.openplayer.ui.components.ArcPlayerCluster
@@ -73,7 +75,16 @@ fun PlayScreen(
     val outputDevice by viewModel.outputDevice.collectAsStateWithLifecycle()
     val bluetoothConnected by viewModel.bluetoothConnected.collectAsStateWithLifecycle()
 
-    var upcomingExpanded by remember { mutableStateOf(false) }
+    // Remembered across launches. Toggled locally first, so the list opens at once rather than
+    // after the setting's round trip through storage.
+    val savedUpcomingExpanded by viewModel.upcomingExpanded.collectAsStateWithLifecycle()
+    var toggledUpcoming by remember { mutableStateOf<Boolean?>(null) }
+    val upcomingExpanded = toggledUpcoming ?: savedUpcomingExpanded ?: false
+    // Each line's height fixed at its line height: the text column is anchored at the bottom, so
+    // a title in a fallback font (Japanese, Arabic, emoji) with a taller line nudged the upcoming
+    // list above it up and down from one song to the next.
+    val density = LocalDensity.current
+    fun lineHeightOf(sizeSp: Int) = with(density) { (sizeSp * 1.15f).sp.toDp() }
     var sleepTimerOpen by remember { mutableStateOf(false) }
     var pendingOutputSwitch by remember { mutableStateOf<OutputDevice?>(null) }
 
@@ -165,7 +176,11 @@ fun PlayScreen(
                 UpcomingSongsList(
                     upcoming = playbackState.upcoming,
                     expanded = upcomingExpanded,
-                    onToggleExpanded = { upcomingExpanded = !upcomingExpanded },
+                    onToggleExpanded = {
+                        val next = !upcomingExpanded
+                        toggledUpcoming = next
+                        viewModel.setUpcomingExpanded(next)
+                    },
                     onSwapSlot = { viewModel.replaceUpcomingSlot(it) },
                     onReorder = { from, to -> viewModel.reorderUpcoming(from, to) },
                 )
@@ -180,6 +195,7 @@ fun PlayScreen(
                 style = interTextStyle(20, bold = true),
                 modifier = Modifier
                     .fillMaxWidth(0.66f)
+                    .height(lineHeightOf(20))
                     // With nothing loaded, the prompt itself leads to the playlists.
                     .then(
                         if (hasSong) {
@@ -199,7 +215,7 @@ fun PlayScreen(
                 MarqueeText(
                     text = playbackState.currentSong?.artist.orEmpty(),
                     style = interTextStyle(16, bold = false),
-                    modifier = Modifier.fillMaxWidth(0.50f),
+                    modifier = Modifier.fillMaxWidth(0.50f).height(lineHeightOf(16)),
                 )
                 Spacer(Modifier.height(100.dp))
                 Text(

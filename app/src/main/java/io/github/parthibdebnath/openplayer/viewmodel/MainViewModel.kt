@@ -686,6 +686,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setBackupToFolders(value: Boolean) = launchSafely { settingsRepository.setBackupToFolders(value) }
 
+    /** Whether the upcoming songs list is open; null until it's been read, so it doesn't flash shut. */
+    val upcomingExpanded: StateFlow<Boolean?> = settingsRepository.upcomingExpanded
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    fun setUpcomingExpanded(value: Boolean) = launchSafely { settingsRepository.setUpcomingExpanded(value) }
+
     // --- Opening a file from another app ------------------------------------------------------
 
     private val _pendingOpen = MutableStateFlow<Uri?>(null)

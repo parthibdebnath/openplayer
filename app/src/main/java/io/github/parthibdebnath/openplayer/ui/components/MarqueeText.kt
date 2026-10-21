@@ -19,7 +19,10 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.foundation.shape.GenericShape
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.TextStyle
@@ -66,8 +69,9 @@ fun MarqueeText(
 
     Box(
         modifier = modifier
-            .clipToBounds()
+            .clip(SidewaysOnly)
             .onGloballyPositioned { containerWidthPx = it.size.width },
+        contentAlignment = Alignment.CenterStart,
     ) {
         Text(
             text = text,
@@ -82,10 +86,21 @@ fun MarqueeText(
                 // always computed as zero, and long names sat statically cut off at the edge
                 // instead of ever scrolling.
                 .wrapContentWidth(align = Alignment.Start, unbounded = true)
+                // Its own height, centred on the line, even where the line is given a fixed height:
+                // a script drawn from a taller fallback font (Arabic, say) was cut off at the bottom.
+                .wrapContentHeight(unbounded = true)
                 .onGloballyPositioned { textWidthPx = it.size.width }
                 .offset { IntOffset(offsetPx.value.toInt(), 0) },
         )
     }
+}
+
+/**
+ * Clips at the sides only. Scrolling text has to disappear at the edges, but glyphs taller than
+ * the line (accents, fallback fonts) should still be drawn whole above and below it.
+ */
+private val SidewaysOnly = GenericShape { size, _ ->
+    addRect(Rect(0f, -size.height, size.width, size.height * 2f))
 }
 
 private const val START_PAUSE_MS = 1000L

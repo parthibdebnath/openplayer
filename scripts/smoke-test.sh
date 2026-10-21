@@ -70,6 +70,7 @@ if [ -n "$PREVIOUS" ]; then
     $ADB install "$PREVIOUS" >/dev/null || { echo "Could not install $PREVIOUS" >&2; exit 2; }
     timeout 60 $ADB shell am start -W -n $ACTIVITY >/dev/null
     sleep 5
+    answer_permission_prompt
     if $ADB install -r "$APK" >/dev/null 2>&1; then
         launch_and_check "upgrade over $(basename "$PREVIOUS")"
     else

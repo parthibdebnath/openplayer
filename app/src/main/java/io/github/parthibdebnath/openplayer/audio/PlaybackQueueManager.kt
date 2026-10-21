@@ -43,8 +43,12 @@ class PlaybackQueueManager {
     var version: Long = 0L
         private set
 
+    /** Told after every change, so the engine can save the queue as it now stands. */
+    var onChanged: (() -> Unit)? = null
+
     private fun changed() {
         version++
+        onChanged?.invoke()
     }
 
     /** Combined next-up list for UI: explicit queue first, then the generated order. */

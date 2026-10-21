@@ -7,11 +7,9 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
@@ -19,7 +17,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.GraphicsLayer
-import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.DpSize
@@ -27,9 +24,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /*
@@ -37,47 +32,40 @@ import kotlin.math.roundToInt
  *
  * At rest it's the solid pill it always was. Touched, it swells (to about one and a half times its
  * size), the solid fill drains away and it becomes clear glass: the track and its filled part show
- * through it, magnified and bent at the rim, with the rim lit and a slight inner shadow. Dragged,
- * it stretches along the direction it's moving and wobbles back when it stops; let go, it settles
- * back into the solid pill. The construction follows the slider in Kyant's AndroidLiquidGlass
- * catalogue (springs, scales and lens settings), sized down to this app's thinner sliders.
+ * through it, magnified and bent at the rim, with the rim lit and a slight inner shadow. Let go, it
+ * settles back into the solid pill. The construction follows the slider in Kyant's
+ * AndroidLiquidGlass catalogue (scales and lens settings), sized down to this app's thinner
+ * sliders - without its squash and stretch, which made the thumb feel soft rather than solid.
  *
  * What it refracts is the slider's own track, recorded into a layer as it's drawn - the page
  * behind is a flat colour, so the track is all there is to see.
  */
 
-/** Press, wobble and speed of one glass thumb. */
+/** Press and size of one glass thumb. */
 @Stable
 internal class GlassThumbState(private val scope: CoroutineScope, private val pressedScale: Float) {
     private val pressSpec = spring(dampingRatio = 1f, stiffness = 1000f, visibilityThreshold = 0.001f)
-    private val scaleXSpec = spring(dampingRatio = 0.6f, stiffness = 250f, visibilityThreshold = 0.001f)
-    private val scaleYSpec = spring(dampingRatio = 0.7f, stiffness = 250f, visibilityThreshold = 0.001f)
-    private val velocitySpec = spring(dampingRatio = 0.5f, stiffness = 300f, visibilityThreshold = 0.01f)
+
+    // One scale for both directions, on a spring that doesn't overshoot. It grows when held and
+    // shrinks back when let go, but never squashes, stretches or wobbles - that read as jelly
+    // rather than glass.
+    private val scaleSpec = spring(dampingRatio = 1f, stiffness = 500f, visibilityThreshold = 0.001f)
 
     val press = Animatable(0f, 0.001f)
-    val scaleX = Animatable(1f, 0.001f)
-    val scaleY = Animatable(1f, 0.001f)
+    val scale = Animatable(1f, 0.001f)
 
-    /** Thumb speed, in slider lengths per second. */
-    val velocity = Animatable(0f, 0.01f)
-
-    private val tracker = VelocityTracker()
     private var held = false
 
     fun press() {
         held = true
-        tracker.resetTracking()
         scope.launch { press.animateTo(1f, pressSpec) }
-        scope.launch { scaleX.animateTo(pressedScale, scaleXSpec) }
-        scope.launch { scaleY.animateTo(pressedScale, scaleYSpec) }
+        scope.launch { scale.animateTo(pressedScale, scaleSpec) }
     }
 
     fun release() {
         held = false
-        scope.launch { velocity.animateTo(0f, velocitySpec) }
         scope.launch { press.animateTo(0f, pressSpec) }
-        scope.launch { scaleX.animateTo(1f, scaleXSpec) }
-        scope.launch { scaleY.animateTo(1f, scaleYSpec) }
+        scope.launch { scale.animateTo(1f, scaleSpec) }
     }
 
     /** A tap on the track: the thumb lifts, glides there as glass, then settles. */
@@ -86,19 +74,6 @@ internal class GlassThumbState(private val scope: CoroutineScope, private val pr
         scope.launch {
             delay(glideMs)
             if (held) release()
-        }
-    }
-
-    /** Feeds where the thumb is drawn, as a fraction of the slider, so its speed can be read. */
-    suspend fun followPosition(fraction: () -> Float) {
-        snapshotFlow(fraction).collectLatest { f ->
-            if (!held) return@collectLatest
-            tracker.addPosition(System.nanoTime() / 1_000_000L, Offset(f, 0f))
-            scope.launch { velocity.animateTo(tracker.calculateVelocity().x, velocitySpec) }
-            // No movement for a moment means it's being held still: let the stretch go.
-            delay(60)
-            tracker.resetTracking()
-            velocity.animateTo(0f, velocitySpec)
         }
     }
 }
@@ -114,20 +89,15 @@ internal fun rememberGlassThumbState(pressedScale: Float): GlassThumbState {
  * the same box as the track, so the two share coordinates.
  *
  * @param track the track as drawn, refracted through the thumb while it's held.
- * @param fraction how far along the track the thumb is, for its speed.
- * @param stretch whether it stretches along its motion; off for a thumb travelling a curve, where
- *   a sideways stretch would point the wrong way.
  */
 @Composable
 internal fun GlassSliderThumb(
     state: GlassThumbState,
     track: GraphicsLayer,
     center: () -> Offset,
-    fraction: () -> Float,
     restSize: DpSize,
     color: Color,
     pageColor: Color,
-    stretch: Boolean = true,
 ) {
     val res = rememberGlassResources()
     val shape = remember { RoundedCornerShape(50) }
@@ -135,7 +105,6 @@ internal fun GlassSliderThumb(
     val source = remember(track, pageColor, density, restSize) {
         GlassSource(layer = { track }, offset = { topLeft(center(), restSize, density) }, flatColor = pageColor)
     }
-    LaunchedEffect(state) { state.followPosition(fraction) }
 
     Box(
         Modifier
@@ -145,16 +114,8 @@ internal fun GlassSliderThumb(
             }
             .size(restSize)
             .graphicsLayer {
-                var sx = state.scaleX.value
-                var sy = state.scaleY.value
-                if (stretch) {
-                    // Longer along its motion and a touch thinner across it, either way it moves.
-                    val v = abs(state.velocity.value) / 10f
-                    sx /= 1f - (v * 0.75f).coerceIn(0f, 0.2f)
-                    sy *= 1f - (v * 0.25f).coerceIn(0f, 0.2f)
-                }
-                scaleX = sx
-                scaleY = sy
+                scaleX = state.scale.value
+                scaleY = state.scale.value
             }
             .drawBehind {
                 val p = state.press.value

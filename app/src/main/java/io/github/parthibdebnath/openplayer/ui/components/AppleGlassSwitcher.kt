@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
@@ -67,37 +68,46 @@ import kotlin.math.sign
 /** How far the selection lifts while held: Apple's tab bar takes a 56pt pill to 78pt. */
 private const val PRESSED_SCALE = 78f / 56f
 
+/** How long the pill takes to fade in or out when the selection appears or clears. */
+private const val SHOW_MS = 160
+
 /** The labels seen through a lifted lens are enlarged by this much. */
 private const val LENS_LABEL_SCALE = 1.2f
 
 /**
- * The selection's motion: where it is (in items), how far it's lifted, and its squash and stretch.
+ * The selection's motion: where it is (in items), how far it's lifted, and how much it has grown.
  * The springs are the ones Apple's tab bar moves on, as measured in Kyant's recreation.
  */
 @Stable
-private class SelectionMotion(private val scope: CoroutineScope, initial: Float, private val count: Int) {
+private class SelectionMotion(private val scope: CoroutineScope, initial: Float, private val count: Int, visible: Boolean) {
     val value = Animatable(initial, 0.001f)
+
+    /**
+     * 1 while something is selected, 0 while nothing is - a reverb that matches none of the
+     * presets. The pill fades out where it is rather than going anywhere: placed at "item -1" it
+     * sat off to the left of the bar, selecting nothing, until a preset was picked again.
+     */
+    val shown = Animatable(if (visible) 1f else 0f, 0.001f)
     val lift = Animatable(0f, 0.001f)
-    val scaleX = Animatable(1f, 0.001f)
-    val scaleY = Animatable(1f, 0.001f)
+    /**
+     * How far it has grown as it lifts. One value for both directions, on a spring that doesn't
+     * overshoot: two springs, one per direction, let it wobble and squash like jelly.
+     */
+    val scale = Animatable(1f, 0.001f)
+    private val scaleSpec = spring(dampingRatio = 1f, stiffness = 500f, visibilityThreshold = 0.001f)
     val panel = Animatable(0f)
     var dragging by mutableStateOf(false)
 
     private val valueSpec = spring(dampingRatio = 1f, stiffness = 1000f, visibilityThreshold = 0.001f)
 
-    /** The selection's speed in widths of the whole bar per second, signed. */
-    val velocity: Float get() = value.velocity / (count - 1).coerceAtLeast(1)
-
     fun press() {
         scope.launch { lift.animateTo(1f, spring(1f, 1000f, 0.001f)) }
-        scope.launch { scaleX.animateTo(PRESSED_SCALE, spring(0.6f, 250f, 0.001f)) }
-        scope.launch { scaleY.animateTo(PRESSED_SCALE, spring(0.7f, 250f, 0.001f)) }
+        scope.launch { scale.animateTo(PRESSED_SCALE, scaleSpec) }
     }
 
     fun release() {
         scope.launch { lift.animateTo(0f, spring(1f, 1000f, 0.001f)) }
-        scope.launch { scaleX.animateTo(1f, spring(0.6f, 250f, 0.001f)) }
-        scope.launch { scaleY.animateTo(1f, spring(0.7f, 250f, 0.001f)) }
+        scope.launch { scale.animateTo(1f, scaleSpec) }
     }
 
     fun follow(target: Float) {
@@ -115,6 +125,18 @@ private class SelectionMotion(private val scope: CoroutineScope, initial: Float,
         }
     }
 
+    fun hide() {
+        scope.launch { shown.animateTo(0f, tween(SHOW_MS)) }
+    }
+
+    /** Brings the pill back on [index] - appearing there, not sliding in from where it was hidden. */
+    fun showAt(index: Int) {
+        scope.launch { value.snapTo(index.toFloat()) }
+        scope.launch { shown.animateTo(1f, tween(SHOW_MS)) }
+    }
+
+    val hidden: Boolean get() = shown.targetValue < 0.5f
+
     fun nudgePanel(dx: Float) {
         scope.launch { panel.snapTo(panel.value + dx) }
     }
@@ -129,7 +151,7 @@ private class SelectionMotion(private val scope: CoroutineScope, initial: Float,
  *
  * At rest the selected item sits in a faint pill. Touch it - or drag across - and the pill lifts
  * off the bar into a clear glass lens: it grows, refracts and slightly splits the colour of what
- * passes under its rim, casts a shadow, and stretches with its speed, while the label inside it is
+ * passes under its rim, and casts a shadow, while the label inside it is
  * enlarged. Let go and it settles into the nearest item. A drag past either end pulls the whole bar
  * a few points after it.
  *
@@ -174,11 +196,16 @@ internal fun AppleGlassSwitcher(
         val currentOnSelect by rememberUpdatedState(onSelect)
         val haptics = io.github.parthibdebnath.openplayer.util.LocalHaptics.current
         val scope = rememberCoroutineScope()
-        val motion = remember(scope, count) { SelectionMotion(scope, selectedIndex.toFloat(), count) }
+        val motion = remember(scope, count) {
+            SelectionMotion(scope, selectedIndex.coerceIn(0, count - 1).toFloat(), count, visible = selectedIndex in 0 until count)
+        }
         LaunchedEffect(selectedIndex) {
-            // Selection changed from elsewhere - a swipe between tabs, say.
-            if (!motion.dragging && abs(motion.value.targetValue - selectedIndex) > 0.01f) {
-                motion.settle(selectedIndex, lifted = false)
+            if (motion.dragging) return@LaunchedEffect
+            when {
+                selectedIndex !in 0 until count -> motion.hide()
+                motion.hidden -> motion.showAt(selectedIndex)
+                // Selection changed from elsewhere - a swipe between tabs, say.
+                abs(motion.value.targetValue - selectedIndex) > 0.01f -> motion.settle(selectedIndex, lifted = false)
             }
         }
 
@@ -309,10 +336,10 @@ internal fun AppleGlassSwitcher(
                 .width(itemWidthDp)
                 .height(thumbHeight)
                 .graphicsLayer {
-                    // Squash and stretch along the motion; the faster, the more.
-                    val v = abs(motion.velocity) / 10f
-                    scaleX = motion.scaleX.value / (1f - (v * 0.75f).coerceIn(-0.2f, 0.2f))
-                    scaleY = motion.scaleY.value * (1f - (v * 0.25f).coerceIn(-0.2f, 0.2f))
+                    // One uniform scale: it grows as it lifts, but doesn't squash or stretch.
+                    scaleX = motion.scale.value
+                    scaleY = motion.scale.value
+                    alpha = motion.shown.value
                 }
                 .drawGlass(
                     thumbRes,
@@ -346,7 +373,7 @@ internal fun AppleGlassSwitcher(
                     awaitEachGesture {
                         val down = awaitFirstDown()
                         val thumbLeft = insetPx + motion.value.value * itemWidth
-                        val onThumb = down.position.x in thumbLeft..(thumbLeft + itemWidth)
+                        val onThumb = !motion.hidden && down.position.x in thumbLeft..(thumbLeft + itemWidth)
                         if (onThumb) motion.press()
                         var dragging = false
                         var travelled = 0f
@@ -360,6 +387,10 @@ internal fun AppleGlassSwitcher(
                             if (!dragging && abs(travelled) > viewConfiguration.touchSlop) {
                                 dragging = true
                                 motion.dragging = true
+                                // From nothing selected, the lens appears under the finger.
+                                if (motion.hidden) {
+                                    motion.showAt(((change.position.x - insetPx) / itemWidth).toInt().coerceIn(0, count - 1))
+                                }
                                 if (!onThumb) motion.press()
                             }
                             if (dragging) {
@@ -385,7 +416,7 @@ internal fun AppleGlassSwitcher(
                             currentOnSelect(index)
                         } else {
                             val index = ((down.position.x - insetPx) / itemWidth).toInt().coerceIn(0, count - 1)
-                            motion.settle(index, lifted = onThumb)
+                            if (motion.hidden) motion.showAt(index) else motion.settle(index, lifted = onThumb)
                             // Always reported, even for the current item: re-tapping File is how
                             // the app backs out of Settings.
                             currentOnSelect(index)

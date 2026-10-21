@@ -13,8 +13,9 @@ import io.github.parthibdebnath.openplayer.ui.theme.LocalAppColors
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -45,6 +46,17 @@ private val ROW_OPACITIES = listOf(1.0f, 0.9f, 0.8f, 0.7f, 0.6f)
 
 private const val EXPAND_DURATION_MS = 260
 
+/** How many songs the expanded list shows. */
+private const val VISIBLE_ROWS = 5
+
+/**
+ * Every row is exactly this tall, whatever its title. Left to size itself, a row took the height
+ * of its text, and titles in scripts the app's font doesn't cover (Japanese, Arabic, emoji) come
+ * from fallback fonts with taller lines - so the whole bottom-anchored list shifted a few pixels
+ * every time one of them came into view.
+ */
+private val ROW_HEIGHT = 40.dp
+
 /**
  * The collapsible "next up" list on the Play screen: collapsed shows just the immediate next
  * song with a swap arrow; expanded shows the next 5, each individually swappable, and
@@ -59,8 +71,6 @@ fun UpcomingSongsList(
     onReorder: (from: Int, to: Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (upcoming.isEmpty()) return
-
     val drag = remember { UpcomingDragState() }
 
     // One icon rotated rather than two swapped, so the chevron turns over as the list opens
@@ -72,27 +82,33 @@ fun UpcomingSongsList(
     )
 
     Column(modifier = modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-        GlassIconButton(
-            // The list grows upward, so the chevron points the way it's about to move: up to
-            // expand, and flipped over to collapse again.
-            icon = Icons.Filled.ExpandLess,
-            contentDescription = if (expanded) "Collapse upcoming songs" else "Expand upcoming songs",
-            onClick = onToggleExpanded,
-            circleSize = 28.dp,
-            iconSize = 18.dp,
-            modifier = Modifier.rotate(chevronRotation),
-        )
+        // With nothing left to come (the end of the queue) the chevron's space is still kept, so
+        // the list's height - and everything anchored to it - doesn't change.
+        if (upcoming.isEmpty()) {
+            Spacer(Modifier.height(28.dp))
+        } else {
+            GlassIconButton(
+                // The list grows upward, so the chevron points the way it's about to move: up to
+                // expand, and flipped over to collapse again.
+                icon = Icons.Filled.ExpandLess,
+                contentDescription = if (expanded) "Collapse upcoming songs" else "Expand upcoming songs",
+                onClick = onToggleExpanded,
+                circleSize = 28.dp,
+                iconSize = 18.dp,
+                modifier = Modifier.rotate(chevronRotation),
+            )
+        }
 
         // The immediate next song is always present, so it keeps its place as the list opens and
         // closes rather than being torn down and rebuilt around the animation.
         UpcomingDraggableRow(
             index = 0,
-            song = upcoming[0],
+            song = upcoming.getOrNull(0),
             opacity = ROW_OPACITIES[0],
-            dragEnabled = expanded,
+            dragEnabled = expanded && upcoming.isNotEmpty(),
             drag = drag,
             upcomingSize = upcoming.size,
-            lastIndex = upcoming.lastIndex.coerceAtMost(4),
+            lastIndex = upcoming.lastIndex.coerceAtMost(VISIBLE_ROWS - 1),
             onSwap = { onSwapSlot(0) },
             onReorder = onReorder,
         )
@@ -107,16 +123,18 @@ fun UpcomingSongsList(
                 fadeOut(animationSpec = tween(EXPAND_DURATION_MS / 2)),
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
-                upcoming.take(5).drop(1).forEachIndexed { offset, song ->
-                    val index = offset + 1
+                // Always the full five rows, blank ones included: near the end of the queue there
+                // are fewer songs left, and a shorter list moved everything above it down.
+                for (index in 1 until VISIBLE_ROWS) {
+                    val song = upcoming.getOrNull(index)
                     UpcomingDraggableRow(
                         index = index,
                         song = song,
                         opacity = ROW_OPACITIES.getOrElse(index) { 0.6f },
-                        dragEnabled = true,
+                        dragEnabled = song != null,
                         drag = drag,
                         upcomingSize = upcoming.size,
-                        lastIndex = upcoming.lastIndex.coerceAtMost(4),
+                        lastIndex = upcoming.lastIndex.coerceAtMost(VISIBLE_ROWS - 1),
                         onSwap = { onSwapSlot(index) },
                         onReorder = onReorder,
                     )
@@ -149,7 +167,7 @@ private class UpcomingDragState {
 @Composable
 private fun UpcomingDraggableRow(
     index: Int,
-    song: Song,
+    song: Song?,
     opacity: Float,
     dragEnabled: Boolean,
     drag: UpcomingDragState,
@@ -161,6 +179,7 @@ private fun UpcomingDraggableRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .height(ROW_HEIGHT)
             .onGloballyPositioned { drag.rowHeightPx = it.size.height.toFloat().coerceAtLeast(1f) }
             .graphicsLayer { translationY = if (drag.index == index) drag.offsetY else 0f }
             .then(
@@ -202,16 +221,15 @@ private fun UpcomingDraggableRow(
                 },
             ),
     ) {
-        UpcomingRow(song = song, opacity = opacity, onSwap = onSwap)
+        // A slot with no song left to fill it stays as blank space of the same height.
+        if (song != null) UpcomingRow(song = song, opacity = opacity, onSwap = onSwap)
     }
 }
 
 @Composable
 private fun UpcomingRow(song: Song, opacity: Float, onSwap: () -> Unit) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
+        modifier = Modifier.fillMaxSize(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // Deliberately static: a long title stays cut off rather than scrolling. These are

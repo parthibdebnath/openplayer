@@ -211,12 +211,9 @@ fun ArcPlayerCluster(
                 state = thumb,
                 track = trackLayer,
                 center = ::thumbCenter,
-                fraction = { motion.value },
                 restSize = DpSize(5.5.dp * 2, 5.5.dp * 2),
                 color = contentColor,
                 pageColor = pageColor,
-                // It travels a curve; a sideways stretch would point off it.
-                stretch = false,
             )
         }
 

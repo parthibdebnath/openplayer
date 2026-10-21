@@ -246,6 +246,9 @@ class PlaybackEngine private constructor(context: Context) {
      */
     private var restoreAttempted = false
 
+    /** Whether a save of a changed queue is already on its way; see [scheduleQueueSave]. */
+    private var queueSaveScheduled = false
+
     /**
      * Whether either player is playing. The tick and save loops wait on this rather than running
      * all the time: with nothing playing there's nothing to update, and waking up twenty times a
@@ -254,6 +257,11 @@ class PlaybackEngine private constructor(context: Context) {
     private val anyPlaying = MutableStateFlow(false)
 
     init {
+        // Any change to the queue is saved straight away, not only on a pause, a seek or leaving
+        // the app: skipping songs while paused - in the app, from the notification or on a headset
+        // - changed nothing that was saved, so if the app was then closed for good (swiped away
+        // from the notification, killed for memory) it reopened on the song before.
+        queueManager.onChanged = ::scheduleQueueSave
         outputDeviceManager.start()
         slots.forEachIndexed { index, slot -> slot.player.addListener(listenerFor(index)) }
 
@@ -863,6 +871,20 @@ class PlaybackEngine private constructor(context: Context) {
         seekTo(0L)
     }
 
+    /**
+     * Saves the queue once the change that prompted this has finished. On the plain main
+     * dispatcher, not the engine's immediate one: run inline, it saved a queue caught halfway
+     * through being rebuilt - a new playlist's pool with the old current song still in place.
+     */
+    private fun scheduleQueueSave() {
+        if (queueSaveScheduled) return
+        queueSaveScheduled = true
+        engineScope.launch(Dispatchers.Main) {
+            queueSaveScheduled = false
+            persistState()
+        }
+    }
+
     /** Saves now rather than at the next periodic save - for pauses, seeks and leaving the app. */
     fun persistNow() {
         engineScope.launch { persistState() }
@@ -1228,7 +1250,9 @@ class PlaybackEngine private constructor(context: Context) {
     fun syncState() {
         _uiState.value = PlaybackUiState(
             currentSong = queueManager.current,
-            playlistLabel = queueManager.playlistLabel,
+            // Only while something is loaded: once a playlist's songs are all gone (it was deleted
+            // while playing, say) its name stayed in the header over an empty player.
+            playlistLabel = if (queueManager.current != null) queueManager.playlistLabel else "",
             isPlaying = isPlayingOrAboutTo(),
             positionMs = player.currentPosition.coerceAtLeast(0),
             // The library's stored length stands in until the player has read the file itself,
