@@ -499,13 +499,25 @@ internal fun Modifier.drawGlass(
     press: () -> Float = { 0f },
     pressPosition: () -> Offset = { Offset.Zero },
 ): Modifier = drawWithContent {
-    val s = spec()
+    drawGlassLayers(res, shape, spec(), source, press(), pressPosition()) { this@drawWithContent.drawContent() }
+}
+
+/** [drawGlass]'s layers, for glass that decides frame by frame whether to draw as glass at all. */
+internal fun DrawScope.drawGlassLayers(
+    res: GlassResources,
+    shape: Shape,
+    s: GlassSpec,
+    source: GlassSource,
+    press: Float,
+    pressPosition: Offset,
+    content: DrawScope.() -> Unit,
+) {
     val path = outlinePath(shape, res.path)
     drawGlassShadow(res, path, s.shadowRadius, s.shadowAlpha)
     drawGlassBackdrop(res, shape, path, s, source)
     if (s.surface.alpha > 0f) drawPath(path, s.surface)
-    drawGlassGlow(res, path, press(), pressPosition())
-    drawContent()
+    drawGlassGlow(res, path, press, pressPosition)
+    content()
     drawGlassHighlight(res, shape, path, s.highlightAlpha)
     drawGlassInnerShadow(res, path, s.innerShadowRadius, s.innerShadowAlpha)
 }

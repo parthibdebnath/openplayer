@@ -62,33 +62,36 @@ fun FileScreen(
             playlistLabel = playback.playlistLabel,
             twentyFourHour = settings.twentyFourHourClock,
         )
-        Column(modifier = Modifier.weight(1f)) {
-            when (val dest = destination) {
-                is FileDestination.PlaylistList -> PlaylistListScreen(
-                    viewModel = viewModel,
-                    authGateManager = authGateManager,
-                    onOpenPlaylist = { id -> destination = FileDestination.PlaylistSongs(id) },
-                    onOpenMultiPlaylist = { destination = FileDestination.MultiPlaylist },
-                    onOpenSearch = { destination = FileDestination.Search },
-                )
-                is FileDestination.MultiPlaylist -> MultiPlaylistScreen(
-                    viewModel = viewModel,
-                    onBackToSingle = { destination = FileDestination.PlaylistList },
-                    onPlayed = { destination = FileDestination.PlaylistList },
-                )
-                is FileDestination.PlaylistSongs -> PlaylistSongsScreen(
-                    playlistId = dest.playlistId,
-                    viewModel = viewModel,
-                    authGateManager = authGateManager,
-                )
-                is FileDestination.Settings -> SettingsScreen(
-                    viewModel = viewModel,
-                    authGateManager = authGateManager,
-                    onOpenLicences = { destination = FileDestination.Licences },
-                )
-                is FileDestination.Licences -> LicencesScreen()
-                is FileDestination.Search -> SearchScreen(viewModel = viewModel)
+        Box(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                when (val dest = destination) {
+                    is FileDestination.PlaylistList -> PlaylistListScreen(
+                        viewModel = viewModel,
+                        authGateManager = authGateManager,
+                        onOpenPlaylist = { id -> destination = FileDestination.PlaylistSongs(id) },
+                        onOpenMultiPlaylist = { destination = FileDestination.MultiPlaylist },
+                        onOpenSearch = { destination = FileDestination.Search },
+                    )
+                    is FileDestination.MultiPlaylist -> MultiPlaylistScreen(
+                        viewModel = viewModel,
+                        onBackToSingle = { destination = FileDestination.PlaylistList },
+                        onPlayed = { destination = FileDestination.PlaylistList },
+                    )
+                    is FileDestination.PlaylistSongs -> PlaylistSongsScreen(
+                        playlistId = dest.playlistId,
+                        viewModel = viewModel,
+                        authGateManager = authGateManager,
+                    )
+                    is FileDestination.Settings -> SettingsScreen(
+                        viewModel = viewModel,
+                        authGateManager = authGateManager,
+                        onOpenLicences = { destination = FileDestination.Licences },
+                    )
+                    is FileDestination.Licences -> LicencesScreen()
+                    is FileDestination.Search -> SearchScreen(viewModel = viewModel)
+                }
             }
+            LibraryPrompts(viewModel = viewModel, modifier = Modifier.align(Alignment.TopCenter))
         }
         NonHomePlayerBar(
             currentSong = playback.currentSong,

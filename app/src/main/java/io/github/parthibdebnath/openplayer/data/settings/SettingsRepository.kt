@@ -14,7 +14,13 @@ import io.github.parthibdebnath.openplayer.data.model.SongSort
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.intOrNull
 import java.io.IOException
 import kotlin.random.Random
 
@@ -69,6 +75,9 @@ object SettingsDefaults {
 
     /** Off: the screen times out as usual. On only matters while the Play screen is up and playing. */
     const val KEEP_SCREEN_ON = false
+
+    /** On = a hidden backup of the library and settings is kept in each playlist folder. */
+    const val BACKUP_TO_FOLDERS = true
 }
 
 /** Every setting at once, as the UI reads them. */
@@ -95,6 +104,7 @@ data class SettingsSnapshot(
     val rememberLongTracks: Boolean = SettingsDefaults.REMEMBER_LONG_TRACKS,
     val hapticStrength: HapticStrength = SettingsDefaults.HAPTIC_STRENGTH,
     val keepScreenOn: Boolean = SettingsDefaults.KEEP_SCREEN_ON,
+    val backupToFolders: Boolean = SettingsDefaults.BACKUP_TO_FOLDERS,
 )
 
 /**
@@ -127,6 +137,7 @@ class SettingsRepository(private val context: Context) {
         val REMEMBER_LONG_TRACKS = booleanPreferencesKey("remember_long_tracks")
         val HAPTIC_STRENGTH = stringPreferencesKey("haptic_strength")
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
+        val BACKUP_TO_FOLDERS = booleanPreferencesKey("backup_to_folders")
 
         /** Settings that no longer exist, cleared out by [prepare]. */
         val RETIRED = listOf(booleanPreferencesKey("invert_contrast"))
@@ -165,6 +176,7 @@ class SettingsRepository(private val context: Context) {
             rememberLongTracks = p[Keys.REMEMBER_LONG_TRACKS] ?: SettingsDefaults.REMEMBER_LONG_TRACKS,
             hapticStrength = HapticStrength.fromName(p[Keys.HAPTIC_STRENGTH]),
             keepScreenOn = p[Keys.KEEP_SCREEN_ON] ?: SettingsDefaults.KEEP_SCREEN_ON,
+            backupToFolders = p[Keys.BACKUP_TO_FOLDERS] ?: SettingsDefaults.BACKUP_TO_FOLDERS,
         )
     }
 
@@ -213,6 +225,42 @@ class SettingsRepository(private val context: Context) {
     suspend fun setRememberLongTracks(value: Boolean) = set(Keys.REMEMBER_LONG_TRACKS, value)
     suspend fun setHapticStrength(value: HapticStrength) = set(Keys.HAPTIC_STRENGTH, value.name)
     suspend fun setKeepScreenOn(value: Boolean) = set(Keys.KEEP_SCREEN_ON, value)
+    suspend fun setBackupToFolders(value: Boolean) = set(Keys.BACKUP_TO_FOLDERS, value)
+
+    /**
+     * Every stored setting by its stored name, for a backup. Read generically rather than field
+     * by field, so a setting added later is backed up without anyone remembering to list it.
+     */
+    suspend fun exportAll(): Map<String, JsonPrimitive> {
+        val p = prefs.first()
+        return p.asMap().mapNotNull { (key, value) ->
+            val primitive = when (value) {
+                is Boolean -> JsonPrimitive(value)
+                is Int -> JsonPrimitive(value)
+                is String -> JsonPrimitive(value)
+                else -> null
+            }
+            primitive?.let { key.name to it }
+        }.toMap()
+    }
+
+    /**
+     * Puts back settings from a backup. Each value is stored under the type it was saved with -
+     * every setting here is a flag, a whole number or text - and names this version doesn't know
+     * are still kept, so a backup from a newer version loses nothing on its way through.
+     */
+    suspend fun importAll(values: Map<String, JsonPrimitive>) {
+        context.settingsDataStore.edit { prefs ->
+            values.forEach { (name, value) ->
+                when {
+                    value.isString -> prefs[stringPreferencesKey(name)] = value.content
+                    value.booleanOrNull != null -> prefs[booleanPreferencesKey(name)] = value.boolean
+                    value.intOrNull != null -> prefs[intPreferencesKey(name)] = value.int
+                }
+            }
+            Keys.RETIRED.forEach { prefs.remove(it) }
+        }
+    }
 
     /**
      * Rolls a new background colour if [today] isn't the day the current one was picked. Both the

@@ -6,6 +6,9 @@ enum class HapticStrength(val label: String) {
     LIGHT("Light"),
     MEDIUM("Medium"),
     STRONG("Strong"),
+
+    /** Everything the motor has, for as long as a tap can reasonably last. Mostly for fun. */
+    MAX("Max"),
     ;
 
     companion object {

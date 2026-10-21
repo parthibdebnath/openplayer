@@ -33,6 +33,7 @@ import io.github.parthibdebnath.openplayer.data.settings.OtherAppSound
 import io.github.parthibdebnath.openplayer.data.settings.HapticStrength
 import io.github.parthibdebnath.openplayer.data.repository.ExportedPlaylist
 import io.github.parthibdebnath.openplayer.data.repository.LibraryExport
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.mapLatest
 import io.github.parthibdebnath.openplayer.data.settings.PitchEffectState
@@ -161,6 +162,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Everything `init` touches belongs above it.
     private val resumeWriter = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
 
+    private val exportJson = kotlinx.serialization.json.Json {
+        prettyPrint = true
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+        coerceInputValues = true
+    }
+
+    /**
+     * Bookkeeping for the backups kept in the playlist folders: this install's id, and the
+     * backups from earlier installs that have already been restored or turned down. Deliberately
+     * outside the settings, which Android's own backup can carry to a new install - this has to
+     * start afresh with each one.
+     */
+    private val backupState = application.getSharedPreferences("folder_backup", android.content.Context.MODE_PRIVATE)
+
+    private val installId: String = backupState.getString(KEY_INSTALL_ID, null)
+        ?: java.util.UUID.randomUUID().toString().also { backupState.edit().putString(KEY_INSTALL_ID, it).apply() }
+
+    /** Bumped by changes the playlist list doesn't show, such as a renamed song, to refresh the backups. */
+    private val backupNudge = MutableStateFlow(0)
+
+    private val _restoreOffer = MutableStateFlow<RestoreOffer?>(null)
+
+    /** A backup from an earlier install, found in a folder just added, waiting for a yes or no. */
+    val restoreOffer: StateFlow<RestoreOffer?> = _restoreOffer.asStateFlow()
+
+    /** The last backup written, minus its timestamp, so an unchanged library isn't written again. */
+    private var lastBackupWritten: String? = null
+
     init {
         viewModelScope.launch(mutationExceptionHandler) {
             runCatching { settingsRepository.prepare() }
@@ -243,6 +273,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 .distinctUntilChanged()
                 .collect { updatePlaybackServiceState(it) }
         }
+        // The backups in the playlist folders follow the library and settings, a few seconds
+        // after the last change rather than on every one: a slider dragged through the effects
+        // would otherwise rewrite every folder's backup dozens of times.
+        viewModelScope.launch(mutationExceptionHandler) {
+            combine(playlists, settingsSnapshot, effectsRepository.effectsState, backupNudge, _restoreOffer) { list, settings, _, _, offer ->
+                Triple(list.isNotEmpty(), settings.backupToFolders, offer == null)
+            }
+                .debounce(BACKUP_DELAY_MS)
+                .collectLatest { (hasPlaylists, enabled, noOfferPending) ->
+                    // Never while a restore is being offered: that would overwrite the very
+                    // backup being offered with this install's empty library.
+                    if (hasPlaylists && enabled && noOfferPending) writeFolderBackups()
+                }
+        }
     }
 
     private data class ServiceInputs(val enabled: Boolean, val hasSong: Boolean, val running: Boolean, val visible: Boolean)
@@ -258,6 +302,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private companion object {
         const val DAILY_COLOR_CHECK_INTERVAL_MS = 60_000L
+        const val BACKUP_DELAY_MS = 3_000L
+        const val KEY_INSTALL_ID = "install_id"
+        const val KEY_SETTLED = "settled_backups"
     }
 
     /**
@@ -371,7 +418,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             toast("That folder is already a playlist")
             return@launchSafely
         }
+        // Read before the playlist exists: once it does, this install's own backup starts to
+        // replace the one already there.
+        val earlier = restorableBackupIn(folderUri)
         playlistRepository.createPlaylist(folderUri, name)
+        if (earlier != null) _restoreOffer.value = RestoreOffer(earlier, folderUri.toString(), name)
     }
 
     /** Re-reads a playlist's folder now, rather than waiting for the next launch. */
@@ -398,6 +449,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // The queue holds its own copies of songs; without this the player kept showing the old
         // name until the song was played again from the list.
         playbackEngine.updateSong(songId) { it.copy(displayName = newName) }
+        backupNudge.value++
     }
 
     fun addSongs(playlistId: Long, sourceUris: List<Uri>) = launchSafely {
@@ -457,16 +509,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- Export and import -------------------------------------------------------------------
 
-    private val exportJson = kotlinx.serialization.json.Json {
-        prettyPrint = true
-        ignoreUnknownKeys = true
-        encodeDefaults = true
-    }
-
     /** Writes every playlist to the file the user picked. */
     fun exportLibrary(target: Uri) = launchSafely {
         val app = getApplication<Application>()
-        val export = playlistRepository.exportLibrary()
+        val export = currentBackup()
         val written = withContext(Dispatchers.IO) {
             runCatching {
                 app.contentResolver.openOutputStream(target, "wt")?.use { out ->
@@ -477,8 +523,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         toast(
             when {
                 !written -> "Couldn't write that file"
-                export.playlists.size == 1 -> "1 playlist exported"
-                else -> "${export.playlists.size} playlists exported"
+                export.playlists.size == 1 -> "1 playlist and your settings exported"
+                else -> "${export.playlists.size} playlists and your settings exported"
             },
         )
     }
@@ -505,6 +551,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             toast("That isn't an openplayer playlist file")
             return@launchSafely
         }
+        restoreSettings(export)
         var imported = 0
         val repick = ArrayList<ExportedPlaylist>()
         for (playlist in export.playlists) {
@@ -536,6 +583,108 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _foldersToRepick.value = waiting.drop(1)
         if (folder != null) playlistRepository.importPlaylist(playlist, folder)
     }
+
+    // --- Backups kept in the playlist folders --------------------------------------------------
+
+    /** The library, settings and effects as they are now, ready to save. */
+    private suspend fun currentBackup(): LibraryExport = playlistRepository.exportLibrary().copy(
+        settings = settingsRepository.exportAll(),
+        effects = effectsRepository.effectsState.first(),
+        installId = installId,
+        savedAt = System.currentTimeMillis(),
+    )
+
+    /** Brings the backup in every playlist folder up to date, if anything has changed. */
+    private suspend fun writeFolderBackups() {
+        val backup = currentBackup()
+        val comparable = exportJson.encodeToString(LibraryExport.serializer(), backup.copy(savedAt = 0L))
+        if (comparable == lastBackupWritten) return
+        val text = exportJson.encodeToString(LibraryExport.serializer(), backup)
+        var written = 0
+        for (playlist in backup.playlists) {
+            val folder = Uri.parse(playlist.folderUri)
+            if (!playlistRepository.canRead(folder)) continue
+            if (playlistRepository.writeFolderBackup(folder, text)) {
+                written++
+            } else {
+                Log.w("MainViewModel", "Couldn't write the backup in ${playlist.name}")
+            }
+        }
+        if (written > 0) lastBackupWritten = comparable
+    }
+
+    /**
+     * The backup in [folder], if it came from another install and hasn't been dealt with yet.
+     * This install's own backups, and ones already restored or turned down, are left alone.
+     */
+    private suspend fun restorableBackupIn(folder: Uri): LibraryExport? {
+        if (!settingsSnapshot.value.backupToFolders) return null
+        val text = playlistRepository.readFolderBackup(folder) ?: return null
+        val backup = runCatching { exportJson.decodeFromString(LibraryExport.serializer(), text) }.getOrNull() ?: return null
+        val from = backup.installId ?: return null
+        if (from == installId || from in settledBackups()) return null
+        if (backup.playlists.isEmpty() && backup.settings.isNullOrEmpty()) return null
+        return backup
+    }
+
+    private fun settledBackups(): Set<String> = backupState.getStringSet(KEY_SETTLED, emptySet()).orEmpty()
+
+    private fun settle(backup: LibraryExport) {
+        val from = backup.installId ?: return
+        backupState.edit().putStringSet(KEY_SETTLED, settledBackups() + from).apply()
+    }
+
+    /** Puts back a backup's settings and sound effects, where it has them. */
+    private suspend fun restoreSettings(backup: LibraryExport) {
+        backup.settings?.takeIf { it.isNotEmpty() }?.let { settingsRepository.importAll(it) }
+        backup.effects?.let { effects -> effectsRepository.update { effects } }
+    }
+
+    /** Restores the backup being offered: settings, effects and every playlist in it. */
+    fun acceptRestore() = launchSafely {
+        val offer = _restoreOffer.value ?: return@launchSafely
+        val backup = offer.backup
+        restoreSettings(backup)
+        // The folder just added is replaced by the backup's version of it, with its old name,
+        // subfolder setting and renamed songs.
+        val added = Uri.parse(offer.folderUri)
+        val inBackup = backup.playlists.any { it.folderUri == offer.folderUri }
+        if (inBackup) playlistRepository.deletePlaylistFor(added)
+        var restored = if (inBackup) 0 else 1
+        val repick = ArrayList<ExportedPlaylist>()
+        for (playlist in backup.playlists) {
+            val uri = Uri.parse(playlist.folderUri)
+            when {
+                playlist.folderUri == offer.folderUri -> {
+                    playlistRepository.importPlaylist(playlist, uri)
+                    restored++
+                }
+                playlistRepository.hasPlaylistFor(uri) -> Unit
+                playlistRepository.canRead(uri) -> {
+                    playlistRepository.importPlaylist(playlist, uri)
+                    restored++
+                }
+                else -> repick += playlist
+            }
+        }
+        settle(backup)
+        _foldersToRepick.value = _foldersToRepick.value + repick
+        _restoreOffer.value = null
+        toast(
+            when {
+                repick.isEmpty() -> "Settings and playlists restored"
+                else -> "Settings restored. Pick the folder for each of the other ${repick.size} playlists."
+            },
+        )
+    }
+
+    /** Turns the offer down: the folder stays as just added, and this install's backup takes over. */
+    fun declineRestore() {
+        _restoreOffer.value?.let { settle(it.backup) }
+        _restoreOffer.value = null
+    }
+
+    fun setBackupToFolders(value: Boolean) = launchSafely { settingsRepository.setBackupToFolders(value) }
 
     // --- Opening a file from another app ------------------------------------------------------
 
@@ -737,3 +886,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun cancelSleepTimer() = playbackEngine.sleepTimerManager.cancel()
 }
+
+/** A backup from an earlier install, found in [folderUri] when it was added as [playlistName]. */
+data class RestoreOffer(val backup: LibraryExport, val folderUri: String, val playlistName: String)

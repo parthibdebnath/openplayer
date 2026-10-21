@@ -54,8 +54,11 @@ fun SfxScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                 onSelect = { selectedTab = it },
                 modifier = Modifier.fillMaxWidth(),
             )
-            Spacer(Modifier.height(20.dp))
-            Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+            Spacer(Modifier.height(4.dp))
+            // Most of the gap is inside the scroll, not above it: a scroll clips at its edges,
+            // and each tab's first toggle sat right on that edge, so its glass swell and shadow
+            // were sliced off at the top whenever it was pressed.
+            Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(top = 16.dp)) {
                 when (selectedTab) {
                     0 -> SpeedTab(state = effects.speed, onUpdate = { viewModel.updateSpeed(it) })
                     1 -> PitchTab(state = effects.pitch, onUpdate = { viewModel.updatePitch(it) })

@@ -4,6 +4,11 @@ import io.github.parthibdebnath.openplayer.ui.theme.LocalAppColors
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.IntSize
+import io.github.parthibdebnath.openplayer.ui.theme.LocalGlassEnabled
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
@@ -160,37 +165,58 @@ fun ArcPlayerCluster(
             followSpec = tween(durationMillis = 260, easing = LinearEasing),
         )
         val currentOnSeek by rememberUpdatedState(onSeek)
+        // The thumb turns to glass while it's held, like the straight sliders' (GlassSliderThumb).
+        val glass = LocalGlassEnabled.current && USE_APPLE_GLASS
+        val pageColor = LocalAppColors.current.background
+        val trackLayer = rememberGraphicsLayer()
+        val thumb = rememberGlassThumbState(pressedScale = 2.6f)
+        fun thumbCenter() = pointOnCircle(
+            center,
+            seekRadiusPx,
+            ArcGeometry.SEEK_START_ANGLE + ArcGeometry.SEEK_SWEEP * motion.value.coerceIn(0f, 1f),
+        )
 
         Canvas(modifier = Modifier.fillMaxSize()) {
             val topLeft = Offset(center.x - seekRadiusPx, center.y - seekRadiusPx)
             val arcSize = Size(seekRadiusPx * 2, seekRadiusPx * 2)
-            drawArc(
-                color = contentColor.copy(alpha = 0.28f),
-                startAngle = ArcGeometry.SEEK_START_ANGLE,
-                sweepAngle = ArcGeometry.SEEK_SWEEP,
-                useCenter = false,
-                topLeft = topLeft,
-                size = arcSize,
-                style = Stroke(width = strokePx),
-            )
             val clampedProgress = motion.value.coerceIn(0f, 1f)
-            drawArc(
-                color = contentColor.copy(alpha = 0.85f),
-                startAngle = ArcGeometry.SEEK_START_ANGLE,
-                sweepAngle = ArcGeometry.SEEK_SWEEP * clampedProgress,
-                useCenter = false,
-                topLeft = topLeft,
-                size = arcSize,
-                style = Stroke(width = strokePx),
-            )
-            drawCircle(
+            // Recorded as well as drawn, for the glass thumb to show through itself.
+            trackLayer.record(IntSize(size.width.toInt().coerceAtLeast(1), size.height.toInt().coerceAtLeast(1))) {
+                drawArc(
+                    color = contentColor.copy(alpha = 0.28f),
+                    startAngle = ArcGeometry.SEEK_START_ANGLE,
+                    sweepAngle = ArcGeometry.SEEK_SWEEP,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
+                    style = Stroke(width = strokePx),
+                )
+                drawArc(
+                    color = contentColor.copy(alpha = 0.85f),
+                    startAngle = ArcGeometry.SEEK_START_ANGLE,
+                    sweepAngle = ArcGeometry.SEEK_SWEEP * clampedProgress,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
+                    style = Stroke(width = strokePx),
+                )
+            }
+            drawLayer(trackLayer)
+            if (!glass) {
+                drawCircle(color = contentColor, radius = thumbPx, center = thumbCenter())
+            }
+        }
+        if (glass) {
+            GlassSliderThumb(
+                state = thumb,
+                track = trackLayer,
+                center = ::thumbCenter,
+                fraction = { motion.value },
+                restSize = DpSize(5.5.dp * 2, 5.5.dp * 2),
                 color = contentColor,
-                radius = thumbPx,
-                center = pointOnCircle(
-                    center,
-                    seekRadiusPx,
-                    ArcGeometry.SEEK_START_ANGLE + ArcGeometry.SEEK_SWEEP * clampedProgress,
-                ),
+                pageColor = pageColor,
+                // It travels a curve; a sideways stretch would point off it.
+                stretch = false,
             )
         }
 
@@ -203,7 +229,7 @@ fun ArcPlayerCluster(
                 .align(Alignment.BottomEnd)
                 .width(outerRadius - ArcGeometry.CENTER_BEYOND_RIGHT)
                 .height(outerRadius - ArcGeometry.CENTER_BEYOND_BOTTOM)
-                .pointerInput(center) {
+                .pointerInput(center, glass) {
                     // This region is sized so the circle's centre always lands at exactly
                     // (outerRadius, outerRadius) in the region's own coordinate space.
                     val outerRadiusPx = outerRadius.toPx()
@@ -217,6 +243,7 @@ fun ArcPlayerCluster(
                             angle <= ArcGeometry.SEEK_END_ANGLE + 8f
                         if (!onTrack) return@awaitEachGesture
                         down.consume()
+                        if (glass) thumb.press()
 
                         // A tap glides the thumb to the tapped point; a drag keeps it under the
                         // finger and leaves it where it was let go.
@@ -226,7 +253,10 @@ fun ArcPlayerCluster(
                             if (up != null && up.changedToUpIgnoreConsumed()) {
                                 val target = progressForTouch(down.position, localCenter)
                                 motion.tapTo(target)
+                                if (glass) thumb.tap(GLIDE_MS.toLong())
                                 currentOnSeek(target)
+                            } else if (glass) {
+                                thumb.release()
                             }
                             return@awaitEachGesture
                         }
@@ -237,6 +267,7 @@ fun ArcPlayerCluster(
                             current = progressForTouch(change.position, localCenter)
                             motion.dragTo(current)
                         }
+                        if (glass) thumb.release()
                         if (completed) {
                             motion.release()
                             currentOnSeek(current)

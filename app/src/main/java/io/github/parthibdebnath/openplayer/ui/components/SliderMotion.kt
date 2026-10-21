@@ -21,7 +21,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 
 /** How long a tapped thumb takes to glide to the tapped point. */
-private const val GLIDE_MS = 250
+internal const val GLIDE_MS = 250
 
 /** How close the reported value has to come to where the thumb was left, as a share of the range. */
 private const val SETTLE_TOLERANCE_FRACTION = 0.03f

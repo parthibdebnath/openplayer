@@ -1,7 +1,5 @@
 package io.github.parthibdebnath.openplayer.ui.screens.file
 
-import android.provider.DocumentsContract
-import androidx.compose.runtime.key
 import io.github.parthibdebnath.openplayer.ui.components.GlassNotification
 import io.github.parthibdebnath.openplayer.util.LocalHaptics
 import io.github.parthibdebnath.openplayer.data.settings.HapticStrength
@@ -116,10 +114,6 @@ fun SettingsScreen(
         if (uri != null) viewModel.importLibrary(uri)
     }
     // Imported playlists whose folders this install can't read yet, picked again one at a time.
-    val foldersToRepick by viewModel.foldersToRepick.collectAsStateWithLifecycle()
-    val repickLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        viewModel.onFolderRepicked(uri)
-    }
 
     Box(modifier = modifier.fillMaxSize()) {
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp).verticalScroll(rememberScrollState())) {
@@ -435,11 +429,22 @@ fun SettingsScreen(
         Spacer(Modifier.height(34.dp))
 
         SectionHeading("Library")
-        SettingLink("Export playlists", "Saves your playlists, their settings and renamed songs to a file.") {
-            exportLauncher.launch("openplayer-playlists.json")
+        ToggleRow(
+            label = "Keep a backup in your music folders",
+            checked = settings.backupToFolders,
+            onToggle = { viewModel.setBackupToFolders(it) },
+            bold = false,
+        )
+        SettingNote(
+            "A small hidden file in each playlist folder holds your playlists and settings. If openplayer is " +
+                "ever reinstalled, add any one of those folders and it offers to bring everything back.",
+        )
+        Spacer(Modifier.height(24.dp))
+        SettingLink("Export playlists and settings", "Saves your playlists, renamed songs, settings and sound effects to a file.") {
+            exportLauncher.launch("openplayer-backup.json")
         }
         Spacer(Modifier.height(24.dp))
-        SettingLink("Import playlists", "Restores playlists from an exported file, on this phone or a new one.") {
+        SettingLink("Import playlists and settings", "Restores them from an exported file, on this phone or a new one.") {
             importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
         }
         Spacer(Modifier.height(34.dp))
@@ -472,35 +477,8 @@ fun SettingsScreen(
         )
         Spacer(Modifier.height(24.dp))
     }
-    foldersToRepick.firstOrNull()?.let { playlist ->
-        // Keyed, so each prompt starts afresh: the notification remembers being swiped away, and
-        // without this the next prompt arrived already dismissed.
-        key(playlist.folderUri) {
-        GlassNotification(
-            title = "Find \u201C${playlist.name}\u201D",
-            message = "Pick its folder so openplayer can read it here. Swipe away to skip it.",
-            onConfirm = { repickLauncher.launch(folderPickerStart(playlist.folderUri)) },
-            onDismiss = { viewModel.onFolderRepicked(null) },
-            // Backed with the page colour: it floats over the settings, and an outline-only
-            // surface (glass off, icon backgrounds hidden) left it unreadable on top of them.
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(horizontal = 18.dp, vertical = 12.dp)
-                .background(LocalAppColors.current.background, RoundedCornerShape(10.dp)),
-        )
-        }
-    }
     }
 }
-
-/**
- * Where the folder picker should open for a saved folder. The picker wants the folder's document,
- * not the tree link that was saved, and given the tree it opened at the top of storage instead.
- */
-private fun folderPickerStart(folderUri: String): Uri? = runCatching {
-    val tree = Uri.parse(folderUri)
-    DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
-}.getOrNull()
 
 /** A line of explanation under a setting. */
 @Composable

@@ -2,6 +2,7 @@ package io.github.parthibdebnath.openplayer.data.repository
 
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
 import java.util.concurrent.atomic.AtomicInteger
 import androidx.documentfile.provider.DocumentFile
 import io.github.parthibdebnath.openplayer.data.db.AppDatabase
@@ -196,6 +197,56 @@ class PlaylistRepository(private val context: Context) {
     /** Whether a playlist for [folderUri] already exists. */
     suspend fun hasPlaylistFor(folderUri: Uri): Boolean = withContext(Dispatchers.IO) {
         playlistDao.getAll().any { it.folderUri == folderUri.toString() }
+    }
+
+    // --- Backups kept in the playlist folders ----------------------------------------------
+
+    /** The document of the backup in [folderUri], or null if there isn't one (or it can't be read). */
+    private fun findFolderBackup(folderUri: Uri): Uri? = runCatching {
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(folderUri, DocumentsContract.getTreeDocumentId(folderUri))
+        context.contentResolver.query(
+            children,
+            arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            while (cursor.moveToNext()) {
+                if (cursor.getString(1) == FOLDER_BACKUP_NAME) {
+                    return@runCatching DocumentsContract.buildDocumentUriUsingTree(folderUri, cursor.getString(0))
+                }
+            }
+            null
+        }
+    }.getOrNull()
+
+    /** The text of the backup kept in [folderUri], if it has one. */
+    suspend fun readFolderBackup(folderUri: Uri): String? = withContext(Dispatchers.IO) {
+        val doc = findFolderBackup(folderUri) ?: return@withContext null
+        runCatching {
+            context.contentResolver.openInputStream(doc)?.use { it.readBytes().decodeToString() }
+        }.getOrNull()
+    }
+
+    /** Writes [text] as the backup in [folderUri], replacing any there. False if it couldn't. */
+    suspend fun writeFolderBackup(folderUri: Uri, text: String): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            val doc = findFolderBackup(folderUri) ?: DocumentsContract.createDocument(
+                context.contentResolver,
+                DocumentsContract.buildDocumentUriUsingTree(folderUri, DocumentsContract.getTreeDocumentId(folderUri)),
+                "application/json",
+                FOLDER_BACKUP_NAME,
+            ) ?: return@runCatching false
+            context.contentResolver.openOutputStream(doc, "wt")?.use { it.write(text.toByteArray()) } != null
+        }.getOrDefault(false)
+    }
+
+    /**
+     * Removes the playlist for [folderUri], keeping access to the folder, so a backup's version of
+     * it can be put in its place.
+     */
+    suspend fun deletePlaylistFor(folderUri: Uri) = withContext(Dispatchers.IO) {
+        playlistDao.getAll().firstOrNull { it.folderUri == folderUri.toString() }?.let { playlistDao.delete(it) }
     }
 
     /** Recreates an exported playlist on [folderUri] - its own, or the one picked in its place. */
