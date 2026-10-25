@@ -1,0 +1,36 @@
+openplayer plays the music already on your phone. Pick a folder and it becomes a playlist; your files stay exactly where they are.
+
+There are no ads, no accounts, no tracking and no internet access. Nothing you play ever leaves your device.
+
+PLAYBACK
+• Gapless playback, or a crossfade of up to 15 seconds between songs
+• Even out volume: every song plays at about the same loudness, using ReplayGain tags where a song has them
+• Shuffle with a seed you can lock, so a shuffle you like can be played again in the same order
+• See and rearrange the next five songs, or swap one out
+• Play several playlists at once
+• Sleep timer, with the option to finish the current song first
+• Skip silence, remember your place in long tracks, and pick up where you left off
+
+YOUR LIBRARY
+• Each folder is a playlist, optionally including its subfolders
+• Favourites: heart a song from the player or any list, and find them all in one place
+• Search every playlist at once, or within one
+• Sort by name, artist, length or when the file last changed
+• Rename songs in the app without touching the files
+• Export your playlists and settings to a file, and import them again
+• A small backup is kept in your music folders, so a reinstall can put everything back
+
+SOUND EFFECTS
+• Speed, with or without keeping the pitch
+• Pitch, in semitones and cents
+• Reverb, with presets
+• 3D sound: width, distance and position
+
+DESIGNED TO STAY OUT OF THE WAY
+• A clean, dark interface with only what you need
+• Controls on the notification, lock screen and headset buttons
+• Optional glass theme, custom background colours and adjustable haptics
+• Two-finger brightness and three-finger volume gestures
+• Optional fingerprint, face or PIN lock to open the app or delete songs
+
+openplayer is free and open source.
