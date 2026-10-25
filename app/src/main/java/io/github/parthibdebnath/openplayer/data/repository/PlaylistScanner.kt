@@ -190,7 +190,7 @@ class PlaylistScanner(
                 }
             }
         } catch (t: Throwable) {
-            Log.e("PlaylistScanner", "Could not list $folderId in $treeUri", t)
+            Log.e("PlaylistScanner", "Could not list a playlist folder", t)
             return null
         }
         return folders

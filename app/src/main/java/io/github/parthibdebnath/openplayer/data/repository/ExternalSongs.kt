@@ -63,7 +63,7 @@ object ExternalSongs {
                 sortIndex = 0L,
             )
         } catch (t: Throwable) {
-            Log.w("ExternalSongs", "Could not open $uri", t)
+            Log.w("ExternalSongs", "Could not open a file from another app", t)
             null
         }
     }

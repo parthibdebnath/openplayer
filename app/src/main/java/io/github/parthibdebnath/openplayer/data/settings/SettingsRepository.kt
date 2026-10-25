@@ -114,31 +114,42 @@ data class SettingsSnapshot(
  */
 class SettingsRepository(private val context: Context) {
     private object Keys {
-        val NOTIFICATION_MEDIA_CONTROL = booleanPreferencesKey("notification_media_control")
-        val REQUIRE_AUTH_TO_OPEN = booleanPreferencesKey("require_auth_to_open")
-        val REQUIRE_AUTH_TO_DELETE = booleanPreferencesKey("require_auth_to_delete")
-        val TWO_FINGER_BRIGHTNESS_GESTURE = booleanPreferencesKey("two_finger_brightness_gesture")
-        val THREE_FINGER_VOLUME_GESTURE = booleanPreferencesKey("three_finger_volume_gesture")
-        val GLASS_THEMING = booleanPreferencesKey("glass_theming")
-        val TWENTY_FOUR_HOUR_CLOCK = booleanPreferencesKey("twenty_four_hour_clock")
-        val SHUFFLE_SEED = stringPreferencesKey("shuffle_seed")
-        val SHUFFLE_SEED_LOCKED = booleanPreferencesKey("shuffle_seed_locked")
-        val CROSSFADE_MS = intPreferencesKey("crossfade_ms")
-        val BACKGROUND_PLAYBACK = booleanPreferencesKey("background_playback")
-        val BACKGROUND_COLOR_HEX = stringPreferencesKey("background_color_hex")
-        val DAILY_RANDOM_BACKGROUND = booleanPreferencesKey("daily_random_background")
-        val BACKGROUND_COLOR_DATE = stringPreferencesKey("background_color_date")
-        val HIDE_ICON_BACKGROUNDS = booleanPreferencesKey("hide_icon_backgrounds")
-        val SCROLL_LONG_TITLES = booleanPreferencesKey("scroll_long_titles")
-        val RESTART_SONG_ON_OPEN = booleanPreferencesKey("restart_song_on_open")
-        val SONG_SORT = stringPreferencesKey("song_sort")
-        val OTHER_APP_SOUND = stringPreferencesKey("other_app_sound")
-        val SKIP_SILENCE = booleanPreferencesKey("skip_silence")
-        val REMEMBER_LONG_TRACKS = booleanPreferencesKey("remember_long_tracks")
-        val HAPTIC_STRENGTH = stringPreferencesKey("haptic_strength")
-        val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
-        val BACKUP_TO_FOLDERS = booleanPreferencesKey("backup_to_folders")
-        val UPCOMING_EXPANDED = booleanPreferencesKey("upcoming_expanded")
+        /**
+         * Each setting's stored type, by name. Declared first, so the keys below can register
+         * themselves as they're created. An import uses it to turn away a value of the wrong
+         * type: stored under a known name, it would throw on every read and crash each launch.
+         */
+        val types = HashMap<String, StoredType>()
+
+        private fun bool(name: String) = booleanPreferencesKey(name).also { types[name] = StoredType.BOOLEAN }
+        private fun int(name: String) = intPreferencesKey(name).also { types[name] = StoredType.INT }
+        private fun text(name: String) = stringPreferencesKey(name).also { types[name] = StoredType.STRING }
+
+        val NOTIFICATION_MEDIA_CONTROL = bool("notification_media_control")
+        val REQUIRE_AUTH_TO_OPEN = bool("require_auth_to_open")
+        val REQUIRE_AUTH_TO_DELETE = bool("require_auth_to_delete")
+        val TWO_FINGER_BRIGHTNESS_GESTURE = bool("two_finger_brightness_gesture")
+        val THREE_FINGER_VOLUME_GESTURE = bool("three_finger_volume_gesture")
+        val GLASS_THEMING = bool("glass_theming")
+        val TWENTY_FOUR_HOUR_CLOCK = bool("twenty_four_hour_clock")
+        val SHUFFLE_SEED = text("shuffle_seed")
+        val SHUFFLE_SEED_LOCKED = bool("shuffle_seed_locked")
+        val CROSSFADE_MS = int("crossfade_ms")
+        val BACKGROUND_PLAYBACK = bool("background_playback")
+        val BACKGROUND_COLOR_HEX = text("background_color_hex")
+        val DAILY_RANDOM_BACKGROUND = bool("daily_random_background")
+        val BACKGROUND_COLOR_DATE = text("background_color_date")
+        val HIDE_ICON_BACKGROUNDS = bool("hide_icon_backgrounds")
+        val SCROLL_LONG_TITLES = bool("scroll_long_titles")
+        val RESTART_SONG_ON_OPEN = bool("restart_song_on_open")
+        val SONG_SORT = text("song_sort")
+        val OTHER_APP_SOUND = text("other_app_sound")
+        val SKIP_SILENCE = bool("skip_silence")
+        val REMEMBER_LONG_TRACKS = bool("remember_long_tracks")
+        val HAPTIC_STRENGTH = text("haptic_strength")
+        val KEEP_SCREEN_ON = bool("keep_screen_on")
+        val BACKUP_TO_FOLDERS = bool("backup_to_folders")
+        val UPCOMING_EXPANDED = bool("upcoming_expanded")
 
         /** Settings that no longer exist, cleared out by [prepare]. */
         val RETIRED = listOf(booleanPreferencesKey("invert_contrast"))
@@ -253,14 +264,27 @@ class SettingsRepository(private val context: Context) {
      * Puts back settings from a backup. Each value is stored under the type it was saved with -
      * every setting here is a flag, a whole number or text - and names this version doesn't know
      * are still kept, so a backup from a newer version loses nothing on its way through.
+     *
+     * Backups are read from shared music folders that other apps can write to, so they're not
+     * trusted: a known setting only takes a value of its own type, and a backup can switch the
+     * app lock on but never off.
      */
     suspend fun importAll(values: Map<String, JsonPrimitive>) {
         context.settingsDataStore.edit { prefs ->
             values.forEach { (name, value) ->
-                when {
-                    value.isString -> prefs[stringPreferencesKey(name)] = value.content
-                    value.booleanOrNull != null -> prefs[booleanPreferencesKey(name)] = value.boolean
-                    value.intOrNull != null -> prefs[intPreferencesKey(name)] = value.int
+                val type = when {
+                    value.isString -> StoredType.STRING
+                    value.booleanOrNull != null -> StoredType.BOOLEAN
+                    value.intOrNull != null -> StoredType.INT
+                    else -> return@forEach
+                }
+                val expected = Keys.types[name]
+                if (expected != null && expected != type) return@forEach
+                if (name in LOCK_SETTINGS && value.booleanOrNull == false) return@forEach
+                when (type) {
+                    StoredType.STRING -> prefs[stringPreferencesKey(name)] = value.content
+                    StoredType.BOOLEAN -> prefs[booleanPreferencesKey(name)] = value.boolean
+                    StoredType.INT -> prefs[intPreferencesKey(name)] = value.int
                 }
             }
             Keys.RETIRED.forEach { prefs.remove(it) }
@@ -312,7 +336,12 @@ class SettingsRepository(private val context: Context) {
         context.settingsDataStore.edit { it[key] = value }
     }
 
+    private enum class StoredType { BOOLEAN, INT, STRING }
+
     companion object {
+        /** Settings an import may turn on but never off; see [importAll]. */
+        private val LOCK_SETTINGS = setOf("require_auth_to_open", "require_auth_to_delete")
+
         private const val SEED_LENGTH = 15
         private const val SEED_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 

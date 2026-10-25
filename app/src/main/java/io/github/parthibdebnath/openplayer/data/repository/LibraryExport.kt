@@ -3,6 +3,8 @@ package io.github.parthibdebnath.openplayer.data.repository
 import io.github.parthibdebnath.openplayer.data.settings.EffectsState
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonPrimitive
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 
 /**
  * The library and the app's setup, as saved to a file: by Settings - Export, and automatically
@@ -43,3 +45,28 @@ data class ExportedPlaylist(
  * Hidden (a leading dot), so file managers and other players leave it out of sight.
  */
 const val FOLDER_BACKUP_NAME = ".openplayer-backup.json"
+
+/**
+ * Far above any real library's export, which is a few hundred kilobytes at most. Exports and
+ * folder backups come from files anyone can put there, and reading a huge one whole would run
+ * the app out of memory.
+ */
+private const val MAX_EXPORT_BYTES = 8 * 1024 * 1024
+
+/** The stream's text, or null if it's too big to be an export; see [MAX_EXPORT_BYTES]. */
+fun InputStream.readExportText(): String? {
+    val bytes = readNBytesCompat(MAX_EXPORT_BYTES + 1)
+    return if (bytes.size > MAX_EXPORT_BYTES) null else bytes.decodeToString()
+}
+
+// InputStream.readNBytes is Java 11 (Android 13); minSdk is 26.
+private fun InputStream.readNBytesCompat(limit: Int): ByteArray {
+    val out = ByteArrayOutputStream()
+    val buffer = ByteArray(64 * 1024)
+    while (out.size() < limit) {
+        val read = read(buffer, 0, minOf(buffer.size, limit - out.size()))
+        if (read < 0) break
+        out.write(buffer, 0, read)
+    }
+    return out.toByteArray()
+}

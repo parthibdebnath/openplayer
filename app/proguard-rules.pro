@@ -17,3 +17,11 @@
 # Stack traces from release builds stay readable with the mapping file.
 -keepattributes SourceFile, LineNumberTable
 -renamesourcefileattribute SourceFile
+
+# Release builds drop verbose, debug and info logging, which names songs as they play. Warnings
+# and errors stay, for bug reports, and are written without file names or paths.
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+}

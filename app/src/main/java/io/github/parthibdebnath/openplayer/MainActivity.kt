@@ -103,6 +103,15 @@ class MainActivity : ComponentActivity() {
                         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
                     }
 
+                    // With the lock on, the recent-apps thumbnail would still show the library to
+                    // anyone holding the phone. FLAG_SECURE would hide it too, but would also block
+                    // the owner's own screenshots, so this narrower switch is used where it exists.
+                    LaunchedEffect(requireAuth) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            setRecentsScreenshotEnabled(requireAuth != true)
+                        }
+                    }
+
                     LaunchedEffect(requireAuth, lockGeneration) {
                         when (requireAuth) {
                             null -> Unit // not read yet - stay on the blank screen below

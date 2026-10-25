@@ -1157,7 +1157,7 @@ class PlaybackEngine private constructor(context: Context) {
             syncState()
         } catch (t: Throwable) {
             rebuildingWindow = false
-            Log.e("PlaybackEngine", "loadAndPlay failed for ${song?.documentUri}", t)
+            Log.e("PlaybackEngine", "loadAndPlay failed", t)
         }
     }
 

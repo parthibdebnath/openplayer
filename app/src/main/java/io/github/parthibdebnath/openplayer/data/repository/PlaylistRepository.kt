@@ -224,7 +224,7 @@ class PlaylistRepository(private val context: Context) {
     suspend fun readFolderBackup(folderUri: Uri): String? = withContext(Dispatchers.IO) {
         val doc = findFolderBackup(folderUri) ?: return@withContext null
         runCatching {
-            context.contentResolver.openInputStream(doc)?.use { it.readBytes().decodeToString() }
+            context.contentResolver.openInputStream(doc)?.use { it.readExportText() }
         }.getOrNull()
     }
 

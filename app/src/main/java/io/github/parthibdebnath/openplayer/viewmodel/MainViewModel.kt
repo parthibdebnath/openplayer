@@ -34,6 +34,7 @@ import io.github.parthibdebnath.openplayer.data.settings.OtherAppSound
 import io.github.parthibdebnath.openplayer.data.settings.HapticStrength
 import io.github.parthibdebnath.openplayer.data.repository.ExportedPlaylist
 import io.github.parthibdebnath.openplayer.data.repository.LibraryExport
+import io.github.parthibdebnath.openplayer.data.repository.readExportText
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.mapLatest
@@ -549,7 +550,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val export = withContext(Dispatchers.IO) {
             runCatching {
                 app.contentResolver.openInputStream(source)?.use { input ->
-                    exportJson.decodeFromString(LibraryExport.serializer(), input.readBytes().decodeToString())
+                    input.readExportText()?.let { exportJson.decodeFromString(LibraryExport.serializer(), it) }
                 }
             }.getOrNull()
         }
@@ -613,7 +614,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (playlistRepository.writeFolderBackup(folder, text)) {
                 written++
             } else {
-                Log.w("MainViewModel", "Couldn't write the backup in ${playlist.name}")
+                Log.w("MainViewModel", "Couldn't write the backup in a playlist folder")
             }
         }
         if (written > 0) lastBackupWritten = comparable
