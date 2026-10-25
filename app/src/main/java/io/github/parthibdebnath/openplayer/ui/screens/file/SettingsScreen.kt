@@ -212,6 +212,14 @@ fun SettingsScreen(
         SettingNote("Skips quiet stretches within songs, such as long intros and gaps.")
         Spacer(Modifier.height(34.dp))
         ToggleRow(
+            label = "Even out volume",
+            checked = settings.normalizeVolume,
+            onToggle = { viewModel.setNormalizeVolume(it) },
+            bold = false,
+        )
+        SettingNote("Plays every song at about the same loudness. Uses ReplayGain tags where a song has them.")
+        Spacer(Modifier.height(34.dp))
+        ToggleRow(
             label = "Keep screen on while playing",
             checked = settings.keepScreenOn,
             onToggle = { viewModel.setKeepScreenOn(it) },

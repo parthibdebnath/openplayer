@@ -14,8 +14,6 @@ import androidx.media3.exoplayer.audio.AudioRendererEventListener
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.SilenceSkippingAudioProcessor
 import androidx.media3.common.audio.SonicAudioProcessor
-import androidx.media3.exoplayer.audio.MediaCodecAudioRenderer
-import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.metadata.MetadataOutput
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
@@ -36,9 +34,11 @@ import androidx.media3.extractor.ts.AdtsExtractor
 import androidx.media3.extractor.wav.WavExtractor
 
 /**
- * Builds an audio-only player: one audio renderer, with [ReverbAudioProcessor] and
- * [ThreeDAudioProcessor] inserted after ExoPlayer's built-in Sonic-based speed/pitch processor, so
- * our custom effects apply on top of the existing (already time-stretched) audio stream.
+ * Builds an audio-only player: one audio renderer, with [NormalizationAudioProcessor],
+ * [ReverbAudioProcessor] and [ThreeDAudioProcessor] inserted after ExoPlayer's built-in
+ * Sonic-based speed/pitch processor, so our custom effects apply on top of the existing (already
+ * time-stretched) audio stream. Loudness is evened out first, so the effects see the same level
+ * from every song.
  *
  * Deliberately not DefaultRenderersFactory. That one also builds video, text, metadata, image and
  * camera-motion renderers - a whole video pipeline and every subtitle and caption decoder - which
@@ -47,6 +47,7 @@ import androidx.media3.extractor.wav.WavExtractor
  */
 class CustomRenderersFactory(
     private val context: Context,
+    val normalizationAudioProcessor: NormalizationAudioProcessor,
     val reverbAudioProcessor: ReverbAudioProcessor,
     val threeDAudioProcessor: ThreeDAudioProcessor,
 ) : RenderersFactory {
@@ -61,24 +62,14 @@ class CustomRenderersFactory(
         val sink = DefaultAudioSink.Builder(context)
             .setAudioProcessorChain(
                 DefaultAudioSink.DefaultAudioProcessorChain(
-                    arrayOf<AudioProcessor>(reverbAudioProcessor, threeDAudioProcessor),
+                    arrayOf<AudioProcessor>(normalizationAudioProcessor, reverbAudioProcessor, threeDAudioProcessor),
                     musicSilenceSkipper(),
                     SonicAudioProcessor(),
                 ),
             )
             .build()
         return arrayOf(
-            MediaCodecAudioRenderer(
-                context,
-                MediaCodecSelector.DEFAULT,
-                // A decoder that fails to start falls back to the next one that can take the
-                // format, rather than failing the song outright - some devices list a hardware
-                // decoder that turns out not to handle a particular stream.
-                /* enableDecoderFallback= */ true,
-                eventHandler,
-                audioRendererEventListener,
-                sink,
-            ),
+            NormalizingAudioRenderer(context, eventHandler, audioRendererEventListener, sink, normalizationAudioProcessor),
         )
     }
 }

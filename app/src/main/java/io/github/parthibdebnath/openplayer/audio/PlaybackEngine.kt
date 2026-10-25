@@ -58,12 +58,13 @@ data class PlaybackUiState(
  * configured and flushed by the sink that owns them, so the two players cannot share a set.
  */
 private class PlayerSlot(context: Context, audioAttributes: AudioAttributes) {
+    val normalization = NormalizationAudioProcessor()
     val reverb = ReverbAudioProcessor()
     val threeD = ThreeDAudioProcessor()
 
     val player: ExoPlayer = ExoPlayer.Builder(
         context,
-        CustomRenderersFactory(context, reverb, threeD),
+        CustomRenderersFactory(context, normalization, reverb, threeD),
         audioMediaSourceFactory(context),
     )
         // Focus is handled centrally by AudioFocusController instead of per-player - see there.
@@ -194,6 +195,13 @@ class PlaybackEngine private constructor(context: Context) {
 
     /** Whether long tracks pick up where they were left off; see [LONG_TRACK_MS]. */
     var rememberLongTracks: Boolean = true
+
+    /** Evens out loudness between songs; see [NormalizationAudioProcessor]. */
+    var normalizeVolume: Boolean = false
+        set(value) {
+            field = value
+            slots.forEach { it.normalization.enabled = value }
+        }
 
     /** Skips stretches of silence within songs - long intros, gaps between live tracks. */
     var skipSilence: Boolean = false
@@ -364,6 +372,7 @@ class PlaybackEngine private constructor(context: Context) {
             if (error.errorCode == PlaybackException.ERROR_CODE_FAILED_RUNTIME_CHECK && !dspBypassedAfterFailure) {
                 dspBypassedAfterFailure = true
                 slots.forEach {
+                    it.normalization.forceBypass = true
                     it.reverb.forceBypass = true
                     it.threeD.forceBypass = true
                 }

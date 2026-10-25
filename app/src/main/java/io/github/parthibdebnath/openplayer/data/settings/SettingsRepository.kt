@@ -68,6 +68,9 @@ object SettingsDefaults {
     /** Off: a song plays exactly as recorded, silences included. */
     const val SKIP_SILENCE = false
 
+    /** Off: every song plays at the level it was mastered at. */
+    const val NORMALIZE_VOLUME = false
+
     /** On = tracks of 20 minutes or more pick up where they were left off. */
     const val REMEMBER_LONG_TRACKS = true
 
@@ -101,6 +104,7 @@ data class SettingsSnapshot(
     val songSort: SongSort = SongSort.NAME,
     val otherAppSound: OtherAppSound = SettingsDefaults.OTHER_APP_SOUND,
     val skipSilence: Boolean = SettingsDefaults.SKIP_SILENCE,
+    val normalizeVolume: Boolean = SettingsDefaults.NORMALIZE_VOLUME,
     val rememberLongTracks: Boolean = SettingsDefaults.REMEMBER_LONG_TRACKS,
     val hapticStrength: HapticStrength = SettingsDefaults.HAPTIC_STRENGTH,
     val keepScreenOn: Boolean = SettingsDefaults.KEEP_SCREEN_ON,
@@ -145,6 +149,7 @@ class SettingsRepository(private val context: Context) {
         val SONG_SORT = text("song_sort")
         val OTHER_APP_SOUND = text("other_app_sound")
         val SKIP_SILENCE = bool("skip_silence")
+        val NORMALIZE_VOLUME = bool("normalize_volume")
         val REMEMBER_LONG_TRACKS = bool("remember_long_tracks")
         val HAPTIC_STRENGTH = text("haptic_strength")
         val KEEP_SCREEN_ON = bool("keep_screen_on")
@@ -185,6 +190,7 @@ class SettingsRepository(private val context: Context) {
             songSort = SongSort.fromName(p[Keys.SONG_SORT]),
             otherAppSound = OtherAppSound.fromName(p[Keys.OTHER_APP_SOUND]),
             skipSilence = p[Keys.SKIP_SILENCE] ?: SettingsDefaults.SKIP_SILENCE,
+            normalizeVolume = p[Keys.NORMALIZE_VOLUME] ?: SettingsDefaults.NORMALIZE_VOLUME,
             rememberLongTracks = p[Keys.REMEMBER_LONG_TRACKS] ?: SettingsDefaults.REMEMBER_LONG_TRACKS,
             hapticStrength = HapticStrength.fromName(p[Keys.HAPTIC_STRENGTH]),
             keepScreenOn = p[Keys.KEEP_SCREEN_ON] ?: SettingsDefaults.KEEP_SCREEN_ON,
@@ -204,6 +210,7 @@ class SettingsRepository(private val context: Context) {
     val songSort: Flow<SongSort> = setting { SongSort.fromName(it[Keys.SONG_SORT]) }
     val otherAppSound: Flow<OtherAppSound> = setting { OtherAppSound.fromName(it[Keys.OTHER_APP_SOUND]) }
     val skipSilence: Flow<Boolean> = setting { it[Keys.SKIP_SILENCE] ?: SettingsDefaults.SKIP_SILENCE }
+    val normalizeVolume: Flow<Boolean> = setting { it[Keys.NORMALIZE_VOLUME] ?: SettingsDefaults.NORMALIZE_VOLUME }
     val rememberLongTracks: Flow<Boolean> = setting { it[Keys.REMEMBER_LONG_TRACKS] ?: SettingsDefaults.REMEMBER_LONG_TRACKS }
 
     /** Whether the Play screen's list of upcoming songs is open, so it's the same next time. */
@@ -237,6 +244,7 @@ class SettingsRepository(private val context: Context) {
     suspend fun setSongSort(value: SongSort) = set(Keys.SONG_SORT, value.name)
     suspend fun setOtherAppSound(value: OtherAppSound) = set(Keys.OTHER_APP_SOUND, value.name)
     suspend fun setSkipSilence(value: Boolean) = set(Keys.SKIP_SILENCE, value)
+    suspend fun setNormalizeVolume(value: Boolean) = set(Keys.NORMALIZE_VOLUME, value)
     suspend fun setRememberLongTracks(value: Boolean) = set(Keys.REMEMBER_LONG_TRACKS, value)
     suspend fun setHapticStrength(value: HapticStrength) = set(Keys.HAPTIC_STRENGTH, value.name)
     suspend fun setKeepScreenOn(value: Boolean) = set(Keys.KEEP_SCREEN_ON, value)

@@ -247,6 +247,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             settingsRepository.skipSilence.collect { playbackEngine.skipSilence = it }
         }
         viewModelScope.launch {
+            settingsRepository.normalizeVolume.collect { playbackEngine.normalizeVolume = it }
+        }
+        viewModelScope.launch {
             settingsRepository.rememberLongTracks.collect { playbackEngine.rememberLongTracks = it }
         }
         // The engine has no database of its own; positions in long tracks are written from here.
@@ -482,6 +485,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setOtherAppSound(value: OtherAppSound) = launchSafely { settingsRepository.setOtherAppSound(value) }
     fun setSkipSilence(value: Boolean) = launchSafely { settingsRepository.setSkipSilence(value) }
+    fun setNormalizeVolume(value: Boolean) = launchSafely { settingsRepository.setNormalizeVolume(value) }
     fun setRememberLongTracks(value: Boolean) = launchSafely { settingsRepository.setRememberLongTracks(value) }
     fun setHapticStrength(value: HapticStrength) = launchSafely { settingsRepository.setHapticStrength(value) }
     fun setKeepScreenOn(value: Boolean) = launchSafely { settingsRepository.setKeepScreenOn(value) }
