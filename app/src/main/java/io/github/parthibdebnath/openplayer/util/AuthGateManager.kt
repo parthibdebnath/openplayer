@@ -10,6 +10,7 @@ import android.os.CancellationSignal
 import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -58,6 +59,7 @@ class AuthGateManager(private val activity: ComponentActivity) {
     }
 
     /** Android 10+: the system biometric prompt, which falls back to the PIN, pattern or password itself. */
+    @RequiresApi(Build.VERSION_CODES.Q)
     private suspend fun authenticateWithPrompt(title: String, subtitle: String?): Boolean =
         suspendCancellableCoroutine { continuation ->
             val builder = BiometricPrompt.Builder(activity).setTitle(title)

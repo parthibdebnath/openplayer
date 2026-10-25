@@ -24,8 +24,8 @@ android {
         applicationId = "io.github.parthibdebnath.openplayer"
         minSdk = 26
         targetSdk = 36
-        versionCode = 7
-        versionName = "0.1.0-beta.7"
+        versionCode = 8
+        versionName = "0.1.0-beta.8"
     }
 
     signingConfigs {
@@ -65,6 +65,13 @@ android {
     // which ended up in resources.arsc. Only the system's own dialogs would ever show them.
     androidResources {
         localeFilters += listOf("en")
+    }
+
+    // Play reads the dependency list from the bundle (it's encrypted with Play's key, for its SDK
+    // warnings). In an APK it's only unreadable bytes - and F-Droid and other stores flag it.
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = true
     }
 
     packaging {

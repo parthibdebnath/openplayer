@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
@@ -10,6 +11,11 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Haptic feedback, at the strength picked in Settings; see util/Haptics. -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!--
+        Added by Media3 for streaming, which this app never does: it only plays local files and
+        has no internet access. Removed so the store listing doesn't show a network permission.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
 
     <application
         android:name=".OpenPlayerApplication"
