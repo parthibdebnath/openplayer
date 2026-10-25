@@ -35,6 +35,8 @@ import io.github.parthibdebnath.openplayer.data.settings.HapticStrength
 import io.github.parthibdebnath.openplayer.data.repository.ExportedPlaylist
 import io.github.parthibdebnath.openplayer.data.repository.LibraryExport
 import io.github.parthibdebnath.openplayer.data.repository.readExportText
+import io.github.parthibdebnath.openplayer.data.model.FAVOURITES_LABEL
+import io.github.parthibdebnath.openplayer.data.model.FAVOURITES_PLAYLIST_ID
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.mapLatest
@@ -93,7 +95,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val viewedSongs: StateFlow<List<Song>> = viewedPlaylistId
         .flatMapLatest { id ->
-            if (id == null) flowOf(emptyList()) else playlistRepository.observeSongs(id)
+            when (id) {
+                null -> flowOf(emptyList())
+                FAVOURITES_PLAYLIST_ID -> playlistRepository.observeFavourites()
+                else -> playlistRepository.observeSongs(id)
+            }
         }
         // Sorted here, off the main thread, in the order the user picked - "play in order" then
         // plays exactly what the list shows.
@@ -103,6 +109,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onViewPlaylist(playlistId: Long?) {
         viewedPlaylistId.value = playlistId
+    }
+
+    /** Every favourite song, in no particular order; the list screen sorts what it shows. */
+    val favourites: StateFlow<List<Song>> = playlistRepository.observeFavourites()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** Which songs are favourites, for hearts and menu labels. */
+    val favouriteIds: StateFlow<Set<Long>> = favourites
+        .map { list -> list.mapTo(HashSet(list.size)) { it.id } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
+    /** Plays every favourite, in the order the Favourites list shows them, or shuffled. */
+    fun playFavourites(shuffled: Boolean) {
+        val songs = settingsSnapshot.value.songSort.sort(favourites.value)
+        if (shuffled) playPlaylistShuffled(songs, FAVOURITES_LABEL) else playPlaylistInOrder(songs, FAVOURITES_LABEL)
+    }
+
+    /** Hearts or un-hearts [song]. Files opened from other apps aren't in the library, so can't be. */
+    fun toggleFavourite(song: Song) = launchSafely {
+        if (song.isExternal) return@launchSafely
+        playlistRepository.setFavourite(song.id, song.id !in favouriteIds.value)
+        backupNudge.value++
     }
 
     /** True while a folder is being indexed; the song list says so rather than looking empty. */

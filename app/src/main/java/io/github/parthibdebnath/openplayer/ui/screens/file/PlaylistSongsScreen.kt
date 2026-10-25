@@ -42,6 +42,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.parthibdebnath.openplayer.data.model.FAVOURITES_LABEL
+import io.github.parthibdebnath.openplayer.data.model.FAVOURITES_PLAYLIST_ID
 import io.github.parthibdebnath.openplayer.data.model.Song
 import io.github.parthibdebnath.openplayer.data.model.SongSort
 import io.github.parthibdebnath.openplayer.ui.components.ContextMenuItem
@@ -68,7 +70,10 @@ fun PlaylistSongsScreen(
 ) {
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val playlist = playlists.firstOrNull { it.id == playlistId }
-    val playlistName = playlist?.displayName.orEmpty()
+    // Favourites is a list, not a folder: songs can't be copied into it.
+    val isFavourites = playlistId == FAVOURITES_PLAYLIST_ID
+    val playlistName = if (isFavourites) FAVOURITES_LABEL else playlist?.displayName.orEmpty()
+    val favouriteIds by viewModel.favouriteIds.collectAsStateWithLifecycle()
     // Held by the ViewModel so it survives leaving this tab - see MainViewModel.viewedSongs.
     LaunchedEffect(playlistId) { viewModel.onViewPlaylist(playlistId) }
     val songs by viewModel.viewedSongs.collectAsStateWithLifecycle()
@@ -198,6 +203,7 @@ fun PlaylistSongsScreen(
 
         Box(modifier = Modifier.weight(1f)) {
             val emptyMessage = when {
+                songs.isEmpty() && isFavourites -> "No favourites yet. Tap and hold a song and choose Favourite."
                 songs.isEmpty() && scanning -> null
                 songs.isEmpty() -> "No audio files in this folder yet. Tap + to copy some in."
                 visibleSongs.isEmpty() -> "No songs match “${searchQuery.trim()}”"
@@ -271,6 +277,10 @@ fun PlaylistSongsScreen(
                                 items = listOf(
                                     ContextMenuItem(label = "Play next", onClick = { viewModel.playNext(song) }),
                                     ContextMenuItem(label = "Add to queue", onClick = { viewModel.queueSong(song) }),
+                                    ContextMenuItem(
+                                        label = if (song.id in favouriteIds) "Unfavourite" else "Favourite",
+                                        onClick = { viewModel.toggleFavourite(song) },
+                                    ),
                                     ContextMenuItem(label = "Rename", onClick = { renamingSong = song }),
                                     ContextMenuItem(label = "Remove", destructive = true, onClick = {
                                         scope.launch {
@@ -312,14 +322,16 @@ fun PlaylistSongsScreen(
             // other three.
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            GlassIconButton(
-                icon = Icons.Filled.Add,
-                contentDescription = "Add songs",
-                onClick = { filePicker.launch(arrayOf("audio/*")) },
-                circleSize = 40.dp,
-                iconSize = 20.dp,
-            )
-            Spacer(Modifier.width(10.dp))
+            if (!isFavourites) {
+                GlassIconButton(
+                    icon = Icons.Filled.Add,
+                    contentDescription = "Add songs",
+                    onClick = { filePicker.launch(arrayOf("audio/*")) },
+                    circleSize = 40.dp,
+                    iconSize = 20.dp,
+                )
+                Spacer(Modifier.width(10.dp))
+            }
             GlassIconButton(
                 icon = Icons.Filled.Search,
                 contentDescription = "Search within playlist",

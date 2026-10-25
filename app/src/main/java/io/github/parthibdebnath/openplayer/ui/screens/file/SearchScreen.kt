@@ -46,6 +46,7 @@ fun SearchScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val results by viewModel.searchResults.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val currentSong by viewModel.currentSong.collectAsStateWithLifecycle()
+    val favouriteIds by viewModel.favouriteIds.collectAsStateWithLifecycle()
     val playlistNames = remember(playlists) { playlists.associate { it.id to it.displayName } }
     var query by rememberSaveable { mutableStateOf("") }
     var menuSongId by remember { mutableStateOf<Long?>(null) }
@@ -122,6 +123,10 @@ fun SearchScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                                 items = listOf(
                                     ContextMenuItem(label = "Play next", onClick = { viewModel.playNext(song) }),
                                     ContextMenuItem(label = "Add to queue", onClick = { viewModel.queueSong(song) }),
+                                    ContextMenuItem(
+                                        label = if (song.id in favouriteIds) "Unfavourite" else "Favourite",
+                                        onClick = { viewModel.toggleFavourite(song) },
+                                    ),
                                 ),
                             )
                         }

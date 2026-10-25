@@ -33,6 +33,7 @@ import io.github.parthibdebnath.openplayer.ui.components.GestureType
 import io.github.parthibdebnath.openplayer.ui.components.GlassNotification
 import io.github.parthibdebnath.openplayer.ui.components.MarqueeText
 import io.github.parthibdebnath.openplayer.ui.components.SleepTimerOverlay
+import io.github.parthibdebnath.openplayer.data.repository.isExternal
 import io.github.parthibdebnath.openplayer.ui.components.SmallControlsRow
 import io.github.parthibdebnath.openplayer.ui.components.TopHeader
 import io.github.parthibdebnath.openplayer.ui.components.UpcomingSongsList
@@ -74,6 +75,7 @@ fun PlayScreen(
     val sleepTimer by viewModel.sleepTimerState.collectAsStateWithLifecycle()
     val outputDevice by viewModel.outputDevice.collectAsStateWithLifecycle()
     val bluetoothConnected by viewModel.bluetoothConnected.collectAsStateWithLifecycle()
+    val favouriteIds by viewModel.favouriteIds.collectAsStateWithLifecycle()
 
     // Remembered across launches. Toggled locally first, so the list opens at once rather than
     // after the setting's round trip through storage.
@@ -234,6 +236,8 @@ fun PlayScreen(
                     onToggleOutput = {
                         pendingOutputSwitch = if (outputDevice == OutputDevice.SPEAKER) OutputDevice.BLUETOOTH else OutputDevice.SPEAKER
                     },
+                    isFavourite = playbackState.currentSong?.takeUnless { it.isExternal }?.let { it.id in favouriteIds },
+                    onToggleFavourite = { playbackState.currentSong?.let { viewModel.toggleFavourite(it) } },
                 )
             } else {
                 Spacer(Modifier.height(100.dp))

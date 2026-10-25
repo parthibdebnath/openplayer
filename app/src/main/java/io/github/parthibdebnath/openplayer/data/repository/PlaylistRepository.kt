@@ -174,7 +174,8 @@ class PlaylistRepository(private val context: Context) {
     suspend fun exportLibrary(): LibraryExport = withContext(Dispatchers.IO) {
         LibraryExport(
             playlists = playlistDao.getAll().map { playlist ->
-                val renamed = songDao.getByPlaylist(playlist.id)
+                val songs = songDao.getByPlaylist(playlist.id)
+                val renamed = songs
                     .filter { it.displayName != it.fileName.substringBeforeLast('.') }
                     .associate { it.fileName to it.displayName }
                 ExportedPlaylist(
@@ -182,6 +183,7 @@ class PlaylistRepository(private val context: Context) {
                     folderUri = playlist.folderUri,
                     includeSubfolders = playlist.includeSubfolders,
                     renamedSongs = renamed,
+                    favourites = songs.filter { it.isFavourite }.map { it.fileName },
                 )
             },
         )
@@ -255,6 +257,18 @@ class PlaylistRepository(private val context: Context) {
         playlist.renamedSongs.forEach { (fileName, displayName) ->
             songDao.renameByFileName(id, fileName, displayName)
         }
+        playlist.favourites.forEach { songDao.favouriteByFileName(id, it) }
+    }
+
+    /** Every favourite song, from every playlist. */
+    fun observeFavourites(): Flow<List<Song>> =
+        songDao.observeFavourites()
+            .map { list -> list.map { it.toModel() } }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.IO)
+
+    suspend fun setFavourite(songId: Long, favourite: Boolean) = withContext(Dispatchers.IO) {
+        songDao.updateFavourite(songId, favourite)
     }
 
     suspend fun renameSong(songId: Long, newDisplayName: String) = withContext(Dispatchers.IO) {

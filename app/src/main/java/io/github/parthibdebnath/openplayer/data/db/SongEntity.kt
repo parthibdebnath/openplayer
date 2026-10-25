@@ -31,4 +31,6 @@ data class SongEntity(
     val sortIndex: Long,
     /** Where a long track was left off, to pick up from next time; zero means from the start. */
     @ColumnInfo(defaultValue = "0") val resumePositionMs: Long = 0L,
+    /** Hearted by the user; such songs make up the Favourites list. */
+    @ColumnInfo(defaultValue = "0") val isFavourite: Boolean = false,
 )

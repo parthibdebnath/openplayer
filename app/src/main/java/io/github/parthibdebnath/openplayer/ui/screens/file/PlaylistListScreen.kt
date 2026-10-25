@@ -22,6 +22,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material3.Icon
 import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,6 +40,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.parthibdebnath.openplayer.data.model.FAVOURITES_LABEL
+import io.github.parthibdebnath.openplayer.data.model.FAVOURITES_PLAYLIST_ID
 import io.github.parthibdebnath.openplayer.data.model.Playlist
 import io.github.parthibdebnath.openplayer.ui.components.ContextMenuItem
 import io.github.parthibdebnath.openplayer.ui.components.GlassContextMenu
@@ -66,6 +70,8 @@ fun PlaylistListScreen(
     val currentSong by viewModel.currentSong.collectAsStateWithLifecycle()
     val scanning by viewModel.scanning.collectAsStateWithLifecycle()
     val playingPlaylistId = currentSong?.playlistId
+    val favourites by viewModel.favourites.collectAsStateWithLifecycle()
+    var favouritesMenuOpen by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     var pendingFolderUri by remember { mutableStateOf<android.net.Uri?>(null) }
@@ -128,6 +134,63 @@ fun PlaylistListScreen(
                 )
             }
             LazyColumn {
+                // Only once something has been hearted, so a library that doesn't use favourites
+                // isn't given an empty list it never asked for.
+                if (favourites.isNotEmpty()) {
+                    item(key = "favourites") {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp)
+                                .combinedClickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onLongClickLabel = "Favourites options",
+                                    onLongClick = { favouritesMenuOpen = true },
+                                    onClick = { onOpenPlaylist(FAVOURITES_PLAYLIST_ID) },
+                                ),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(
+                                modifier = Modifier.size(30.dp).glassSurface(shape = CircleShape),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Favorite,
+                                    contentDescription = null,
+                                    tint = LocalAppColors.current.onBackground,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                            Spacer(Modifier.size(16.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = FAVOURITES_LABEL,
+                                    style = interTextStyle(20, bold = false),
+                                    color = LocalAppColors.current.onBackground,
+                                    maxLines = 1,
+                                )
+                                Text(
+                                    text = if (favourites.size == 1) "1 song" else "${favourites.size} songs",
+                                    style = interTextStyle(14, bold = false),
+                                    color = LocalAppColors.current.onBackground.copy(alpha = 0.55f),
+                                    maxLines = 1,
+                                )
+                            }
+                            if (favouritesMenuOpen) {
+                                GlassContextMenu(
+                                    expanded = true,
+                                    onDismissRequest = { favouritesMenuOpen = false },
+                                    offset = IntOffset(0, 0),
+                                    items = listOf(
+                                        ContextMenuItem(label = "Play", onClick = { viewModel.playFavourites(shuffled = false) }),
+                                        ContextMenuItem(label = "Shuffle", onClick = { viewModel.playFavourites(shuffled = true) }),
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                }
                 itemsIndexed(playlists, key = { _, playlist -> playlist.id }) { index, playlist ->
                     Row(
                         modifier = Modifier

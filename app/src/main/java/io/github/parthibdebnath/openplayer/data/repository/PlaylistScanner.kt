@@ -116,6 +116,9 @@ class PlaylistScanner(
                 sizeBytes = file.sizeBytes,
                 lastModified = file.lastModified,
                 sortIndex = current?.sortIndex ?: file.name.lowercase().hashCode().toLong(),
+                // The row is replaced whole, so anything the user set has to be carried over -
+                // re-tagging a file changes its timestamp, and that dropped it from Favourites.
+                isFavourite = current?.isFavourite ?: false,
             )
         }
         if (rows.isNotEmpty()) songDao.insertAll(rows)

@@ -36,6 +36,8 @@ data class ExportedPlaylist(
     val includeSubfolders: Boolean = false,
     /** Songs renamed in the app: file name to the name shown. */
     val renamedSongs: Map<String, String> = emptyMap(),
+    /** File names of the songs marked as favourites. */
+    val favourites: List<String> = emptyList(),
 )
 
 /**

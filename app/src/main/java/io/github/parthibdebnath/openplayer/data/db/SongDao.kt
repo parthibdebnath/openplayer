@@ -38,6 +38,18 @@ interface SongDao {
     @Query("UPDATE songs SET displayName = :displayName WHERE id = :id")
     suspend fun updateDisplayName(id: Long, displayName: String)
 
+    /** Every favourite, across all playlists. */
+    @Query("SELECT * FROM songs WHERE isFavourite = 1")
+    fun observeFavourites(): Flow<List<SongEntity>>
+
+    /** Only the column itself, so a rescan or metadata fill running at the same time isn't undone. */
+    @Query("UPDATE songs SET isFavourite = :favourite WHERE id = :id")
+    suspend fun updateFavourite(id: Long, favourite: Boolean)
+
+    /** Marks an imported playlist's song as a favourite, matched by file name. */
+    @Query("UPDATE songs SET isFavourite = 1 WHERE playlistId = :playlistId AND fileName = :fileName")
+    suspend fun favouriteByFileName(playlistId: Long, fileName: String)
+
     @Query("UPDATE songs SET resumePositionMs = :positionMs WHERE id = :id")
     suspend fun updateResumePosition(id: Long, positionMs: Long)
 

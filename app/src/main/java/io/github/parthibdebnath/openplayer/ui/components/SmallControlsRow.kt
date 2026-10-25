@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
@@ -26,6 +28,9 @@ fun SmallControlsRow(
     onCycleRepeat: () -> Unit,
     onToggleShuffle: () -> Unit,
     onToggleOutput: () -> Unit,
+    /** Whether the current song is a favourite; null when it can't be one (nothing loaded, or a file from another app). */
+    isFavourite: Boolean?,
+    onToggleFavourite: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
@@ -46,6 +51,17 @@ fun SmallControlsRow(
             iconSize = 20.dp,
             opacity = if (shuffleOn) 1f else 0.5f,
         )
+        if (isFavourite != null) {
+            androidx.compose.foundation.layout.Spacer(Modifier.width(10.dp))
+            GlassIconButton(
+                icon = if (isFavourite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                contentDescription = if (isFavourite) "Unfavourite" else "Favourite",
+                onClick = onToggleFavourite,
+                circleSize = 35.dp,
+                iconSize = 20.dp,
+                opacity = if (isFavourite) 1f else 0.5f,
+            )
+        }
         if (outputSwitchAvailable) {
             androidx.compose.foundation.layout.Spacer(Modifier.width(10.dp))
             GlassIconButton(

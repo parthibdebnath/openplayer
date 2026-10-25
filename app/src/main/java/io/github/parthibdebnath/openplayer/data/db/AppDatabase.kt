@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [PlaylistEntity::class, SongEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -26,7 +26,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "openplayer.db",
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                     .also { instance = it }
             }
@@ -41,5 +41,12 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE playlists ADD COLUMN includeSubfolders INTEGER NOT NULL DEFAULT 0")
         db.execSQL("ALTER TABLE songs ADD COLUMN resumePositionMs INTEGER NOT NULL DEFAULT 0")
+    }
+}
+
+/** Version 3: favourite songs. A new column defaulting to "not a favourite", so nothing else changes. */
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE songs ADD COLUMN isFavourite INTEGER NOT NULL DEFAULT 0")
     }
 }

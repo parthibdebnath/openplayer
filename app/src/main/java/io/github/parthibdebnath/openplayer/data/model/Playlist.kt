@@ -10,3 +10,12 @@ data class Playlist(
     val songCount: Int = 0,
     val includeSubfolders: Boolean = false,
 )
+
+/**
+ * The Favourites list's id where a playlist id is expected - in the File tab's navigation and the
+ * viewed playlist. Database ids are positive, and -1 is taken by files opened from other apps.
+ */
+const val FAVOURITES_PLAYLIST_ID = -2L
+
+/** The Favourites list's name, also shown as the queue label while it plays. */
+const val FAVOURITES_LABEL = "Favourites"
