@@ -10,8 +10,9 @@
 # its data. Set ANDROID_SERIAL to pick one when several are running.
 set -u
 
-PKG=io.github.parthibdebnath.openplayer
-ACTIVITY=$PKG/.MainActivity
+PKG=com.hyperperformant.openplayer
+# The applicationId differs from the Kotlin package, so the activity needs its full class name.
+ACTIVITY=$PKG/io.github.parthibdebnath.openplayer.MainActivity
 ADB=${ADB:-adb}
 APK=${1:?usage: smoke-test.sh app.apk [previous.apk]}
 PREVIOUS=${2:-}

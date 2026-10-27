@@ -1,0 +1,6 @@
+• Favourites: heart songs from the player or any list, and play them all from the new Favourites list
+• Even out volume (Settings): plays every song at about the same loudness, using ReplayGain tags where present
+• Long song names: tap one in the upcoming list, or hold one in a playlist, to scroll it into view
+• New app icon
+• Safer restores from backups and imported files
+• Personal details kept out of system logs

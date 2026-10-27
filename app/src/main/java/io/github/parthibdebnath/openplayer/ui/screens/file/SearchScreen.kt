@@ -17,6 +17,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -27,6 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.parthibdebnath.openplayer.ui.components.MarqueeText
 import io.github.parthibdebnath.openplayer.ui.components.ContextMenuItem
 import io.github.parthibdebnath.openplayer.ui.components.GlassContextMenu
 import io.github.parthibdebnath.openplayer.ui.components.GlassTextField
@@ -87,6 +89,8 @@ fun SearchScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
         Box(modifier = Modifier.weight(1f)) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                 items(results, key = { it.id }) { song ->
+                    // Holding a result scrolls its name a few times, as well as opening the menu.
+                    var titleScrollRequest by remember { mutableIntStateOf(0) }
                     Box {
                         Column(
                             modifier = Modifier
@@ -95,17 +99,20 @@ fun SearchScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = null,
                                     onLongClickLabel = "Song options",
-                                    onLongClick = { menuSongId = song.id },
+                                    onLongClick = {
+                                        menuSongId = song.id
+                                        titleScrollRequest++
+                                    },
                                     onClick = { viewModel.playSearchResult(song) },
                                 )
                                 .padding(vertical = 8.dp),
                         ) {
-                            Text(
+                            MarqueeText(
                                 text = song.displayName,
                                 style = interTextStyle(18, bold = song.id == currentSong?.id),
                                 color = LocalAppColors.current.onBackground,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                                scrollRequest = titleScrollRequest,
+                                idleOverflow = TextOverflow.Ellipsis,
                             )
                             Text(
                                 text = listOfNotNull(song.artist, playlistNames[song.playlistId]).joinToString(" · "),

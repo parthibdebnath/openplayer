@@ -7,6 +7,8 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.draw.rotate
 import io.github.parthibdebnath.openplayer.ui.theme.LocalAppColors
@@ -25,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -232,17 +235,24 @@ private fun UpcomingRow(song: Song, opacity: Float, onSwap: () -> Unit) {
         modifier = Modifier.fillMaxSize(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Deliberately static: a long title stays cut off rather than scrolling. These are
+        // Static by default: a long title stays cut off rather than scrolling. These are
         // glanceable "what's next" entries, and several lines of text animating at once is more
-        // distracting than the information is worth.
-        Text(
-            text = song.displayName,
-            style = interTextStyle(16, bold = false),
-            color = LocalAppColors.current.onBackground.copy(alpha = opacity),
-            maxLines = 1,
-            overflow = TextOverflow.Clip,
-            modifier = Modifier.weight(1f),
-        )
+        // distracting than the information is worth. Tapping one scrolls it a few times, so a
+        // name that's cut off can still be read. Keyed on the song, because the rows are slots:
+        // without it a scroll asked for one song carried on when another moved into its place.
+        key(song.id) {
+            var scrollRequest by remember { mutableIntStateOf(0) }
+            MarqueeText(
+                text = song.displayName,
+                style = interTextStyle(16, bold = false),
+                color = LocalAppColors.current.onBackground.copy(alpha = opacity),
+                scrollRequest = scrollRequest,
+                idleOverflow = TextOverflow.Clip,
+                modifier = Modifier
+                    .weight(1f)
+                    .onPlainTap { scrollRequest++ },
+            )
+        }
         Spacer(Modifier.width(16.dp))
         GlassIconButton(
             icon = Icons.AutoMirrored.Filled.ArrowForward,
@@ -252,5 +262,29 @@ private fun UpcomingRow(song: Song, opacity: Float, onSwap: () -> Unit) {
             iconSize = 16.dp,
             opacity = opacity,
         )
+    }
+}
+
+/**
+ * Calls [onTap] for a quick tap that doesn't move, without consuming anything. A tap detector that
+ * consumed the touch would mark it as claimed by a child, which stops the row's drag-to-reorder and
+ * the tab swipe from starting on the title; this one only watches. Moving past touch slop, a
+ * gesture someone else consumed, or holding past the long-press timeout isn't a tap.
+ */
+private fun Modifier.onPlainTap(onTap: () -> Unit): Modifier = pointerInput(Unit) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        val slop = viewConfiguration.touchSlop
+        while (true) {
+            val event = awaitPointerEvent()
+            val change = event.changes.firstOrNull { it.id == down.id } ?: return@awaitEachGesture
+            if (change.isConsumed || (change.position - down.position).getDistance() > slop) {
+                return@awaitEachGesture
+            }
+            if (!change.pressed) {
+                if (change.uptimeMillis - down.uptimeMillis < viewConfiguration.longPressTimeoutMillis) onTap()
+                return@awaitEachGesture
+            }
+        }
     }
 }

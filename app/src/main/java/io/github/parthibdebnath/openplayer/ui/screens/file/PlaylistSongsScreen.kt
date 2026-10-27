@@ -30,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -46,6 +47,7 @@ import io.github.parthibdebnath.openplayer.data.model.FAVOURITES_LABEL
 import io.github.parthibdebnath.openplayer.data.model.FAVOURITES_PLAYLIST_ID
 import io.github.parthibdebnath.openplayer.data.model.Song
 import io.github.parthibdebnath.openplayer.data.model.SongSort
+import io.github.parthibdebnath.openplayer.ui.components.MarqueeText
 import io.github.parthibdebnath.openplayer.ui.components.ContextMenuItem
 import io.github.parthibdebnath.openplayer.ui.components.GlassContextMenu
 import io.github.parthibdebnath.openplayer.ui.components.GlassIconButton
@@ -224,6 +226,10 @@ fun PlaylistSongsScreen(
                     // at all - is dimmed and says so, rather than looking like any other song and then
                     // being silently skipped when it comes up.
                     val unreadable = song.durationMs < 0
+                    // Holding a song scrolls its name a few times (as well as opening the menu), so
+                    // a long one that's cut off can be read. Remembered per item, so it follows the
+                    // song through sorting and filtering.
+                    var titleScrollRequest by remember { mutableIntStateOf(0) }
                     Box(modifier = if (unreadable) Modifier.alpha(0.4f) else Modifier) {
                         Row(
                             modifier = Modifier
@@ -239,7 +245,10 @@ fun PlaylistSongsScreen(
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = null,
                                     onLongClickLabel = "Song options",
-                                    onLongClick = { contextMenuSongId = song.id },
+                                    onLongClick = {
+                                        contextMenuSongId = song.id
+                                        titleScrollRequest++
+                                    },
                                     // Plays the list as shown - filtered and sorted - from here.
                                     onClick = { viewModel.playSpecificSong(visibleSongs, playlistName, song) },
                                 ),
@@ -249,13 +258,13 @@ fun PlaylistSongsScreen(
                             // take whatever width it wanted, which squeezed the artist into a
                             // sliver that wrapped one character per line and stretched the row to
                             // an enormous height.
-                            Text(
+                            MarqueeText(
                                 text = song.displayName,
                                 // The song that's playing reads bold, so it can be found at a glance.
                                 style = interTextStyle(20, bold = isCurrent),
                                 color = LocalAppColors.current.onBackground,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                                scrollRequest = titleScrollRequest,
+                                idleOverflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f),
                             )
                             Spacer(Modifier.width(12.dp))
