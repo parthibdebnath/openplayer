@@ -67,6 +67,15 @@ private val TAB_BAR_MAX_WIDTH = 300.dp
 /** Space each screen leaves free at the bottom for the floating tab bar, with a gap above it. */
 private val TAB_BAR_RESERVE = TAB_BAR_HEIGHT + TAB_BAR_BOTTOM_MARGIN + 8.dp
 
+/**
+ * Without glass theming the tab bar is the original full-width text bar: the switcher's default
+ * height with 8 dp above and below. The screens end where it starts, as they did when it sat
+ * under them in a column.
+ */
+private val PLAIN_TAB_BAR_HEIGHT = 50.dp
+private val PLAIN_TAB_BAR_MARGIN = 8.dp
+private val PLAIN_TAB_BAR_RESERVE = PLAIN_TAB_BAR_HEIGHT + PLAIN_TAB_BAR_MARGIN * 2
+
 @Composable
 fun AppRoot(
     authGateManager: AuthGateManager,
@@ -148,7 +157,8 @@ fun AppRoot(
                         selectedTab = (selectedTab + direction).coerceIn(0, TOP_LEVEL_TABS.lastIndex)
                     },
             ) {
-                val screenModifier = Modifier.fillMaxSize().padding(bottom = TAB_BAR_RESERVE)
+                val screenModifier = Modifier.fillMaxSize()
+                    .padding(bottom = if (settings.glassTheming) TAB_BAR_RESERVE else PLAIN_TAB_BAR_RESERVE)
                 // Retains each tab's saveable state - where the File tab had navigated to, its
                 // scroll position - so switching back doesn't rebuild from scratch.
                 saveableStateHolder.SaveableStateProvider(selectedTab) {
@@ -175,20 +185,28 @@ fun AppRoot(
             }
             GlassPillSwitcher(
                 items = TOP_LEVEL_TABS,
-                icons = TOP_LEVEL_ICONS,
+                // Icons only with glass theming; the plain theme keeps its text labels.
+                icons = if (settings.glassTheming) TOP_LEVEL_ICONS else null,
                 floating = true,
                 selectedIndex = selectedTab,
                 onSelect = { index ->
                     if (index == 0 && selectedTab == 0) fileResetSignal++
                     selectedTab = index
                 },
-                height = TAB_BAR_HEIGHT,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = TAB_BAR_BOTTOM_MARGIN)
-                    // A compact capsule, centred: three icons don't need the whole width.
-                    .widthIn(max = TAB_BAR_MAX_WIDTH)
-                    .padding(horizontal = 18.dp),
+                height = if (settings.glassTheming) TAB_BAR_HEIGHT else PLAIN_TAB_BAR_HEIGHT,
+                modifier = if (settings.glassTheming) {
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = TAB_BAR_BOTTOM_MARGIN)
+                        // A compact capsule, centred: three icons don't need the whole width.
+                        .widthIn(max = TAB_BAR_MAX_WIDTH)
+                        .padding(horizontal = 18.dp)
+                } else {
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .padding(horizontal = 18.dp, vertical = PLAIN_TAB_BAR_MARGIN)
+                },
             )
 
             if (openFailed) {
