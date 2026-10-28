@@ -69,6 +69,7 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize(), color = Color.Black) {
                     val viewModel = mainViewModel
                     val requireAuth by viewModel.requireAuthToOpen.collectAsStateWithLifecycle()
+                    val settingsLoaded by viewModel.settingsLoaded.collectAsStateWithLifecycle()
                     // Deliberately not saved across recreation: restoring "unlocked" after the
                     // process was killed in the background would skip the lock entirely.
                     var unlocked by remember { mutableStateOf(false) }
@@ -124,7 +125,10 @@ class MainActivity : ComponentActivity() {
                     when {
                         // Nothing is shown until the setting is known; showing the app first and
                         // locking it a moment later briefly exposed it to anyone holding the phone.
-                        requireAuth == null -> Box(Modifier.fillMaxSize().background(Color.Black))
+                        // The same goes for the rest of the settings: drawn with the defaults, the
+                        // first frame showed the wrong theme for anyone who'd changed it.
+                        requireAuth == null || !settingsLoaded ->
+                            Box(Modifier.fillMaxSize().background(Color.Black))
                         unlocked -> AppRoot(authGateManager = authGateManager, brightnessController = brightnessController)
                         else -> LockedScreen(onRetry = ::tryUnlock)
                     }

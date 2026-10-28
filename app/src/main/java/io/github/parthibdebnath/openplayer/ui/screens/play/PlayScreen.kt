@@ -70,6 +70,7 @@ fun PlayScreen(
     modifier: Modifier = Modifier,
 ) {
     val playbackState by viewModel.playbackUiState.collectAsStateWithLifecycle()
+    val playbackRestored by viewModel.playbackRestored.collectAsStateWithLifecycle()
     val effects by viewModel.effectsState.collectAsStateWithLifecycle()
     val settings by viewModel.settingsSnapshot.collectAsStateWithLifecycle()
     val sleepTimer by viewModel.sleepTimerState.collectAsStateWithLifecycle()
@@ -193,7 +194,9 @@ fun PlayScreen(
             // Width-limited so a long name marquees within the clear part of the row instead of
             // running underneath the play/next buttons on the arc.
             MarqueeText(
-                text = playbackState.currentSong?.displayName ?: "Start a playlist",
+                // Blank while the last session's song is being put back: "Start a playlist" showed
+                // for a moment on every launch before it reappeared.
+                text = playbackState.currentSong?.displayName ?: if (playbackRestored) "Start a playlist" else "",
                 style = interTextStyle(20, bold = true),
                 modifier = Modifier
                     .fillMaxWidth(0.66f)

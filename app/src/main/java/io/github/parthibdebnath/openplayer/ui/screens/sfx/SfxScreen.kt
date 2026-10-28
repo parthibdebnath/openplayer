@@ -37,6 +37,7 @@ private val TAB_LABELS = listOf("Speed", "Pitch", "Reverb", "3D")
 fun SfxScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val effects by viewModel.effectsState.collectAsStateWithLifecycle()
     val playback by viewModel.playbackUiState.collectAsStateWithLifecycle()
+    val playbackRestored by viewModel.playbackRestored.collectAsStateWithLifecycle()
     val settings by viewModel.settingsSnapshot.collectAsStateWithLifecycle()
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
 
@@ -106,6 +107,7 @@ fun SfxScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
             onNext = { viewModel.skipNext() },
             onPrevious = { viewModel.skipPrevious() },
             onSeek = { viewModel.seekTo(it) },
+            playbackRestored = playbackRestored,
         )
     }
 }

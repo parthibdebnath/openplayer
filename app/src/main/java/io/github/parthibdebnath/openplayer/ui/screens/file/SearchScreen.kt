@@ -45,7 +45,7 @@ import io.github.parthibdebnath.openplayer.viewmodel.MainViewModel
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SearchScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
-    val results by viewModel.searchResults.collectAsStateWithLifecycle()
+    val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val currentSong by viewModel.currentSong.collectAsStateWithLifecycle()
     val favouriteIds by viewModel.favouriteIds.collectAsStateWithLifecycle()
@@ -53,6 +53,11 @@ fun SearchScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     var query by rememberSaveable { mutableStateOf("") }
     var menuSongId by remember { mutableStateOf<Long?>(null) }
     val listState = rememberLazyListState()
+    // An empty box shows no results straight away, rather than the last search's for a moment.
+    val results = if (query.isBlank()) emptyList() else searchResults.songs
+    // What the results shown actually answer. Describing them against the box instead said
+    // "Nothing matches" for a moment on every new search, while it was still being looked up.
+    val answeredQuery = searchResults.query
 
     // The query lives in the ViewModel so results survive recomposition; it's cleared on the way
     // out, so the next search starts empty rather than showing a stale list.
@@ -77,8 +82,8 @@ fun SearchScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
         Spacer(Modifier.height(12.dp))
         Text(
             text = when {
-                query.isBlank() -> "Song names and artists, in every playlist"
-                results.isEmpty() -> "Nothing matches “${query.trim()}”"
+                query.isBlank() || answeredQuery.isEmpty() -> "Song names and artists, in every playlist"
+                results.isEmpty() -> "Nothing matches “$answeredQuery”"
                 results.size == 1 -> "1 song"
                 else -> "${results.size} songs"
             },

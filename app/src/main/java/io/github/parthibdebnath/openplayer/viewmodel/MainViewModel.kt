@@ -68,6 +68,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import io.github.parthibdebnath.openplayer.util.mapState
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -78,8 +79,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val effectsRepository = EffectsRepository(application)
     val playbackEngine = PlaybackEngine.get(application)
 
-    val playlists: StateFlow<List<Playlist>> = playlistRepository.observePlaylists()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    /**
+     * Every playlist, or null until the first read has landed - see [libraryOverview], which is
+     * what the playlist list reads. Loaded eagerly, so it's normally in hand long before the File
+     * tab is opened.
+     */
+    private val playlistsOrNull: StateFlow<List<Playlist>?> = playlistRepository.observePlaylists()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    val playlists: StateFlow<List<Playlist>> = playlistsOrNull.mapState { it.orEmpty() }
 
     /**
      * Songs of the playlist currently being viewed, cached in the ViewModel rather than queried
@@ -93,27 +101,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     private val viewedPlaylistId = MutableStateFlow<Long?>(null)
 
-    val viewedSongs: StateFlow<List<Song>> = viewedPlaylistId
+    /**
+     * Carries the id of the playlist its songs belong to. Opening another playlist kept showing
+     * the last one's songs - usually the one playing - until the new query landed, so a screen
+     * only shows these once the id matches its own.
+     */
+    val viewedSongs: StateFlow<ViewedSongs> = viewedPlaylistId
         .flatMapLatest { id ->
             when (id) {
                 null -> flowOf(emptyList())
                 FAVOURITES_PLAYLIST_ID -> playlistRepository.observeFavourites()
                 else -> playlistRepository.observeSongs(id)
-            }
+            }.map { songs -> ViewedSongs(id, songs) }
         }
         // Sorted here, off the main thread, in the order the user picked - "play in order" then
         // plays exactly what the list shows.
-        .combine(settingsRepository.songSort) { songs, sort -> sort.sort(songs) }
+        .combine(settingsRepository.songSort) { viewed, sort -> viewed.copy(songs = sort.sort(viewed.songs)) }
         .flowOn(Dispatchers.Default)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(30_000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(30_000), ViewedSongs(null, emptyList()))
 
     fun onViewPlaylist(playlistId: Long?) {
         viewedPlaylistId.value = playlistId
     }
 
     /** Every favourite song, in no particular order; the list screen sorts what it shows. */
-    val favourites: StateFlow<List<Song>> = playlistRepository.observeFavourites()
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    private val favouritesOrNull: StateFlow<List<Song>?> = playlistRepository.observeFavourites()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    val favourites: StateFlow<List<Song>> = favouritesOrNull.mapState { it.orEmpty() }
+
+    /**
+     * Playlists and favourites together, null until both have been read: the playlist list shows
+     * nothing at all rather than a first frame that's then rearranged.
+     */
+    val libraryOverview: StateFlow<LibraryOverview?> = combine(playlistsOrNull, favouritesOrNull) { playlists, favourites ->
+        // Favourites are waited for too, so the Favourites row doesn't drop in above the playlists
+        // a moment after they appear.
+        if (playlists == null || favourites == null) null else LibraryOverview(playlists, favourites)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     /** Which songs are favourites, for hearts and menu labels. */
     val favouriteIds: StateFlow<Set<Long>> = favourites
@@ -158,8 +183,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // Eagerly, so the value is already current whenever something reads it outside composition
     // - the background-playback check when the app is left, for one.
-    val settingsSnapshot: StateFlow<SettingsSnapshot> = settingsRepository.snapshot
-        .stateIn(viewModelScope, SharingStarted.Eagerly, SettingsSnapshot())
+    private val settingsOrNull: StateFlow<SettingsSnapshot?> = settingsRepository.snapshot
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    val settingsSnapshot: StateFlow<SettingsSnapshot> = settingsOrNull.mapState { it ?: DEFAULT_SETTINGS }
+
+    /**
+     * Whether the saved settings have been read, rather than the defaults standing in for them.
+     * The app isn't drawn before then: its first frame used the default theme and glass setting,
+     * and changed a moment later for anyone who had picked something else.
+     */
+    val settingsLoaded: StateFlow<Boolean> = settingsOrNull.mapState { it != null }
+
+    private val _playbackRestored = MutableStateFlow(false)
+
+    /**
+     * True once the queue saved last time has been put back (or there was none). Until then the
+     * player shows no song rather than "Start a playlist", which flashed on every launch before
+     * the saved song came back.
+     */
+    val playbackRestored: StateFlow<Boolean> = _playbackRestored.asStateFlow()
 
     /**
      * File/SAF operations can throw for all sorts of provider-specific reasons. A bare
@@ -222,6 +265,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var lastBackupWritten: String? = null
 
     init {
+        // However the restore goes - a slow device, or a failure that ends the launch below - the
+        // player isn't left blank for more than a moment.
+        viewModelScope.launch {
+            delay(RESTORE_PLACEHOLDER_LIMIT_MS)
+            _playbackRestored.value = true
+        }
         viewModelScope.launch(mutationExceptionHandler) {
             runCatching { settingsRepository.prepare() }
             // Restored before the rescan rather than after it: the saved songs are already in the
@@ -233,6 +282,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 lookup = { ids -> playlistRepository.getSongsByIds(ids) },
                 restartFromBeginning = restartSong,
             )
+            _playbackRestored.value = true
             if (restartSong) playbackEngine.restartCurrentIfPaused()
             playlistRepository.rescanAll()
             // Anything the rescan found gone - deleted, moved or renamed outside the app - comes
@@ -528,11 +578,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val searchQuery = MutableStateFlow("")
 
-    /** Matches for the library-wide search, newest query only; empty until something is typed. */
-    val searchResults: StateFlow<List<Song>> = searchQuery
-        .debounce(120)
-        .mapLatest { query -> if (query.isBlank()) emptyList() else playlistRepository.search(query.trim()) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    /**
+     * Matches for the library-wide search, newest query only; empty until something is typed.
+     * Carries the query it answers: while a new one is still being looked up the screen keeps
+     * describing the last answer, rather than saying "nothing matches" for a moment on each new
+     * search. Clearing the box takes effect at once.
+     */
+    val searchResults: StateFlow<SearchResults> = searchQuery
+        .debounce { query -> if (query.isBlank()) 0L else 120L }
+        .mapLatest { query ->
+            val trimmed = query.trim()
+            SearchResults(trimmed, if (trimmed.isEmpty()) emptyList() else playlistRepository.search(trimmed))
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SearchResults("", emptyList()))
 
     fun setSearchQuery(query: String) {
         searchQuery.value = query
@@ -934,3 +992,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
 /** A backup from an earlier install, found in [folderUri] when it was added as [playlistName]. */
 data class RestoreOffer(val backup: LibraryExport, val folderUri: String, val playlistName: String)
+
+/** The songs of the playlist being viewed, and which playlist that is - see [MainViewModel.viewedSongs]. */
+data class ViewedSongs(val playlistId: Long?, val songs: List<Song>)
+
+/** What the playlist list shows, once both parts have been read. */
+data class LibraryOverview(val playlists: List<Playlist>, val favourites: List<Song>)
+
+/** Library-wide search results and the (trimmed) query they answer. */
+data class SearchResults(val query: String, val songs: List<Song>)
+
+/** Stands in for the settings until they've been read. */
+private val DEFAULT_SETTINGS = SettingsSnapshot()
+
+/** The longest the player shows no song while the saved queue is being put back. */
+private const val RESTORE_PLACEHOLDER_LIMIT_MS = 2_000L

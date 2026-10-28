@@ -39,6 +39,8 @@ fun NonHomePlayerBar(
     onSeek: (Long) -> Unit,
     modifier: Modifier = Modifier,
     onOpenSettings: (() -> Unit)? = null,
+    // False while the last session's song is being put back, when the prompt would be wrong.
+    playbackRestored: Boolean = true,
 ) {
     androidx.compose.foundation.layout.Column(modifier = modifier.fillMaxWidth()) {
         DottedDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -46,7 +48,7 @@ fun NonHomePlayerBar(
         // height - and with it the divider above it - shifted by a pixel or two as songs with
         // different glyphs scrolled past, which read as the separator drifting.
         MarqueeText(
-            text = currentSong?.displayName ?: "Start a playlist",
+            text = currentSong?.displayName ?: if (playbackRestored) "Start a playlist" else "",
             style = interTextStyle(18, bold = true),
             modifier = Modifier.fillMaxWidth().height(24.dp).padding(horizontal = 18.dp),
         )

@@ -1,0 +1,4 @@
+• Reordering the upcoming songs is animated: the other songs make room as you drag, and the song glides into place
+• Opening a playlist or Favourites no longer flashes another playlist's songs first
+• No more brief "Start a playlist", "No playlists yet" or "Nothing matches" while things are still loading
+• The app opens straight into your own theme and settings

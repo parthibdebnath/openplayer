@@ -78,7 +78,12 @@ fun PlaylistSongsScreen(
     val favouriteIds by viewModel.favouriteIds.collectAsStateWithLifecycle()
     // Held by the ViewModel so it survives leaving this tab - see MainViewModel.viewedSongs.
     LaunchedEffect(playlistId) { viewModel.onViewPlaylist(playlistId) }
-    val songs by viewModel.viewedSongs.collectAsStateWithLifecycle()
+    val viewed by viewModel.viewedSongs.collectAsStateWithLifecycle()
+    // Until this playlist's songs have been read, the ViewModel still holds the last playlist's,
+    // often the one playing. They flashed up for a moment when another list was opened; now the
+    // list stays empty, with no "no songs" message, until its own songs arrive.
+    val songsLoaded = viewed.playlistId == playlistId
+    val songs = if (songsLoaded) viewed.songs else emptyList()
     val scanning by viewModel.scanning.collectAsStateWithLifecycle()
     val settings by viewModel.settingsSnapshot.collectAsStateWithLifecycle()
     val currentSong by viewModel.currentSong.collectAsStateWithLifecycle()
@@ -145,6 +150,7 @@ fun PlaylistSongsScreen(
             // look like an empty playlist.
             Text(
                 text = when {
+                    !songsLoaded -> ""
                     scanning && songs.isEmpty() -> "Scanning…"
                     searchOpen && searchQuery.isNotBlank() -> "${visibleSongs.size} of ${songs.size} songs"
                     songs.size == 1 -> "1 song"
@@ -205,6 +211,7 @@ fun PlaylistSongsScreen(
 
         Box(modifier = Modifier.weight(1f)) {
             val emptyMessage = when {
+                !songsLoaded -> null
                 songs.isEmpty() && isFavourites -> "No favourites yet. Tap and hold a song and choose Favourite."
                 songs.isEmpty() && scanning -> null
                 songs.isEmpty() -> "No audio files in this folder yet. Tap + to copy some in."

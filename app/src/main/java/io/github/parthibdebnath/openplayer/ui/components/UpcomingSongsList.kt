@@ -1,6 +1,19 @@
 package io.github.parthibdebnath.openplayer.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.zIndex
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -75,6 +88,42 @@ fun UpcomingSongsList(
     modifier: Modifier = Modifier,
 ) {
     val drag = remember { UpcomingDragState() }
+    val scope = rememberCoroutineScope()
+    // Read through these from the gesture callbacks, which are created once and would otherwise
+    // see the list as it was when the drag began.
+    val currentUpcoming by rememberUpdatedState(upcoming)
+    val currentOnReorder by rememberUpdatedState(onReorder)
+    val lastIndex = upcoming.lastIndex.coerceAtMost(VISIBLE_ROWS - 1)
+
+    // A dropped row stays drawn in its new place until the list comes back in the new order; the
+    // offsets then go in the same frame that draws it, so nothing jumps. Clearing them a frame
+    // early or late showed the old order for a moment.
+    val reorderLanded = drag.awaitingList != null && upcoming != drag.awaitingList
+    val moving = drag.index >= 0 && !reorderLanded
+    SideEffect { if (reorderLanded) drag.reset() }
+
+    fun drop(cancelled: Boolean) {
+        val from = drag.index
+        if (from < 0 || drag.dropping) return
+        val to = if (cancelled) from else drag.targetIndex()
+        drag.dropping = true
+        scope.launch {
+            // The row glides the rest of the way into its slot instead of snapping there.
+            animate(drag.offsetY, (to - from) * drag.rowHeightPx, animationSpec = rowSpring()) { value, _ ->
+                drag.offsetY = value
+            }
+            if (to == from) {
+                drag.reset()
+                return@launch
+            }
+            val before = currentUpcoming
+            drag.awaitingList = before
+            currentOnReorder(from, to)
+            // A move the queue turned down never changes the list; don't hold the rows forever.
+            delay(REORDER_TIMEOUT_MS)
+            if (drag.awaitingList === before) drag.reset()
+        }
+    }
 
     // One icon rotated rather than two swapped, so the chevron turns over as the list opens
     // instead of popping between glyphs.
@@ -107,22 +156,29 @@ fun UpcomingSongsList(
         UpcomingDraggableRow(
             index = 0,
             song = upcoming.getOrNull(0),
-            opacity = ROW_OPACITIES[0],
             dragEnabled = expanded && upcoming.isNotEmpty(),
+            moving = moving,
             drag = drag,
-            upcomingSize = upcoming.size,
-            lastIndex = upcoming.lastIndex.coerceAtMost(VISIBLE_ROWS - 1),
+            lastIndex = lastIndex,
             onSwap = { onSwapSlot(0) },
-            onReorder = onReorder,
+            onDrop = ::drop,
         )
 
         // Expands from the bottom edge so the rows unfurl upward, matching where the list sits on
         // screen and which way the chevron points.
+        val expandState = remember { MutableTransitionState(expanded) }
+        expandState.targetState = expanded
         AnimatedVisibility(
-            visible = expanded,
-            enter = expandVertically(animationSpec = tween(EXPAND_DURATION_MS), expandFrom = Alignment.Bottom) +
+            visibleState = expandState,
+            // Clipped only while opening or closing. The built-in clip stays on all the time,
+            // which cut a row off as it was dragged up past the first one.
+            modifier = Modifier
+                .then(if (expandState.isIdle) Modifier else Modifier.clipToBounds())
+                // A row dragged out of these four draws over the first row, not under it.
+                .zIndex(if (moving && drag.index >= 1) 1f else 0f),
+            enter = expandVertically(animationSpec = tween(EXPAND_DURATION_MS), expandFrom = Alignment.Bottom, clip = false) +
                 fadeIn(animationSpec = tween(EXPAND_DURATION_MS)),
-            exit = shrinkVertically(animationSpec = tween(EXPAND_DURATION_MS), shrinkTowards = Alignment.Bottom) +
+            exit = shrinkVertically(animationSpec = tween(EXPAND_DURATION_MS), shrinkTowards = Alignment.Bottom, clip = false) +
                 fadeOut(animationSpec = tween(EXPAND_DURATION_MS / 2)),
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
@@ -133,13 +189,12 @@ fun UpcomingSongsList(
                     UpcomingDraggableRow(
                         index = index,
                         song = song,
-                        opacity = ROW_OPACITIES.getOrElse(index) { 0.6f },
                         dragEnabled = song != null,
+                        moving = moving,
                         drag = drag,
-                        upcomingSize = upcoming.size,
-                        lastIndex = upcoming.lastIndex.coerceAtMost(VISIBLE_ROWS - 1),
+                        lastIndex = lastIndex,
                         onSwap = { onSwapSlot(index) },
-                        onReorder = onReorder,
+                        onDrop = ::drop,
                     )
                 }
             }
@@ -160,10 +215,28 @@ private class UpcomingDragState {
     var index by mutableIntStateOf(-1)
     var offsetY by mutableFloatStateOf(0f)
     var rowHeightPx by mutableFloatStateOf(1f)
+    private var lastIndex by mutableIntStateOf(0)
+
+    /** Set once the finger is lifted, while the row glides into place. */
+    var dropping by mutableStateOf(false)
+
+    /** The list as it was when a move was handed to the queue; cleared when the new order lands. */
+    var awaitingList by mutableStateOf<List<Song>?>(null)
+
+    fun start(index: Int, lastIndex: Int) {
+        this.index = index
+        this.lastIndex = lastIndex
+        offsetY = 0f
+    }
+
+    /** The slot the dragged row would land in if it were let go now. */
+    fun targetIndex(): Int = (index + (offsetY / rowHeightPx).roundToInt()).coerceIn(0, lastIndex)
 
     fun reset() {
         index = -1
         offsetY = 0f
+        dropping = false
+        awaitingList = null
     }
 }
 
@@ -171,51 +244,75 @@ private class UpcomingDragState {
 private fun UpcomingDraggableRow(
     index: Int,
     song: Song?,
-    opacity: Float,
     dragEnabled: Boolean,
+    moving: Boolean,
     drag: UpcomingDragState,
-    upcomingSize: Int,
     lastIndex: Int,
     onSwap: () -> Unit,
-    onReorder: (from: Int, to: Int) -> Unit,
+    onDrop: (cancelled: Boolean) -> Unit,
 ) {
+    val isDragged = moving && drag.index == index
+    // The rows between where the dragged one started and where it's headed step aside by one
+    // row, so the gap it will drop into opens up under the finger as it goes.
+    val makeRoom = if (!moving || isDragged) {
+        0f
+    } else {
+        val from = drag.index
+        val to = drag.targetIndex()
+        when (index) {
+            in (from + 1)..to -> -drag.rowHeightPx
+            in to until from -> drag.rowHeightPx
+            else -> 0f
+        }
+    }
+    // Snapped, not animated, once nothing is moving: the offsets have to be gone in the very
+    // frame the list is drawn in its new order.
+    val roomOffset by animateFloatAsState(
+        targetValue = makeRoom,
+        animationSpec = if (moving) rowSpring() else snap(),
+        label = "makeRoom",
+    )
+    val offsetY = when {
+        isDragged -> drag.offsetY
+        moving -> roomOffset
+        else -> 0f
+    }
+    // Faded to the slot it's passing through, so a song doesn't change brightness all at once
+    // when the move lands.
+    val opacity = opacityAt(index + offsetY / drag.rowHeightPx)
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(ROW_HEIGHT)
+            .zIndex(if (isDragged) 1f else 0f)
             .onGloballyPositioned { drag.rowHeightPx = it.size.height.toFloat().coerceAtLeast(1f) }
-            .graphicsLayer { translationY = if (drag.index == index) drag.offsetY else 0f }
+            .graphicsLayer { translationY = offsetY }
             .then(
                 if (!dragEnabled) {
                     Modifier
                 } else {
-                    Modifier.pointerInput(upcomingSize, lastIndex) {
+                    Modifier.pointerInput(lastIndex) {
                         // The reorder is applied once, on release, rather than continuously during
                         // the drag. Mutating the list mid-drag reshuffled the rows out from under
                         // the finger on every crossing, which is what made the motion flicker; now
-                        // the dragged row simply follows the finger and the list settles when it's
-                        // let go.
+                        // the dragged row follows the finger, the others make room, and the list
+                        // takes the new order once the row has settled into it.
                         detectDragGestures(
-                            onDragStart = { drag.index = index },
-                            onDragEnd = {
-                                val from = drag.index
-                                if (from >= 0) {
-                                    val to = (from + (drag.offsetY / drag.rowHeightPx).roundToInt())
-                                        .coerceIn(0, lastIndex)
-                                    if (to != from) onReorder(from, to)
-                                }
-                                drag.reset()
+                            onDragStart = {
+                                // One row at a time, and not while the last move is landing.
+                                if (drag.index < 0) drag.start(index, lastIndex)
                             },
-                            onDragCancel = { drag.reset() },
+                            onDragEnd = { if (drag.index == index) onDrop(false) },
+                            onDragCancel = { if (drag.index == index) onDrop(true) },
                             onDrag = { change, dragAmount ->
                                 change.consume()
-                                val current = drag.index
-                                if (current >= 0) {
+                                if (drag.index == index && !drag.dropping) {
                                     // Clamped to the ends of the list, so dragging past the first
                                     // or last row holds the row there instead of building up
                                     // offset that never unwinds.
-                                    val minOffset = -current * drag.rowHeightPx
-                                    val maxOffset = (lastIndex - current) * drag.rowHeightPx
+                                    val minOffset = -index * drag.rowHeightPx
+                                    val maxOffset = (lastIndex - index) * drag.rowHeightPx
                                     drag.offsetY = (drag.offsetY + dragAmount.y).coerceIn(minOffset, maxOffset)
                                 }
                             },
@@ -228,6 +325,20 @@ private fun UpcomingDraggableRow(
         if (song != null) UpcomingRow(song = song, opacity = opacity, onSwap = onSwap)
     }
 }
+
+/** A row's opacity at a (fractional) slot, blending between the slots either side. */
+private fun opacityAt(position: Float): Float {
+    val clamped = position.coerceIn(0f, (ROW_OPACITIES.size - 1).toFloat())
+    val lower = clamped.toInt()
+    val upper = (lower + 1).coerceAtMost(ROW_OPACITIES.lastIndex)
+    return ROW_OPACITIES[lower] + (ROW_OPACITIES[upper] - ROW_OPACITIES[lower]) * (clamped - lower)
+}
+
+/** Quick and settled, with no overshoot: the rows should feel solid, not springy. */
+private fun <T> rowSpring() = spring<T>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
+
+/** How long a dropped row waits for the queue to take the move before giving up on it. */
+private const val REORDER_TIMEOUT_MS = 500L
 
 @Composable
 private fun UpcomingRow(song: Song, opacity: Float, onSwap: () -> Unit) {

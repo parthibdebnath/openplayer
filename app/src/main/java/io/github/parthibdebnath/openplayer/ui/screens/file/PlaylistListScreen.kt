@@ -65,12 +65,16 @@ fun PlaylistListScreen(
     onOpenSearch: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    // Null until playlists and favourites have both been read. Starting from empty lists showed
+    // "No playlists yet" for a moment on the first visit, and then dropped the Favourites row in
+    // above the playlists once it arrived.
+    val overview by viewModel.libraryOverview.collectAsStateWithLifecycle()
+    val playlists = overview?.playlists.orEmpty()
+    val favourites = overview?.favourites.orEmpty()
     val settings by viewModel.settingsSnapshot.collectAsStateWithLifecycle()
     val currentSong by viewModel.currentSong.collectAsStateWithLifecycle()
     val scanning by viewModel.scanning.collectAsStateWithLifecycle()
     val playingPlaylistId = currentSong?.playlistId
-    val favourites by viewModel.favourites.collectAsStateWithLifecycle()
     var favouritesMenuOpen by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
@@ -123,7 +127,7 @@ fun PlaylistListScreen(
         }
 
         Box(modifier = Modifier.weight(1f)) {
-            if (playlists.isEmpty()) {
+            if (overview != null && playlists.isEmpty()) {
                 // First run: say what a playlist is here and how to make one, instead of a blank page.
                 Text(
                     text = "No playlists yet.\n\nTap + below and pick a folder of music - each folder becomes a playlist. " +
