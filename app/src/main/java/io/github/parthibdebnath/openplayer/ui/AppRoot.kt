@@ -51,7 +51,15 @@ import io.github.parthibdebnath.openplayer.ui.theme.LocalAppColors
 import io.github.parthibdebnath.openplayer.ui.theme.LocalGlassEnabled
 import io.github.parthibdebnath.openplayer.ui.theme.LocalHideIconBackgrounds
 import io.github.parthibdebnath.openplayer.ui.theme.LocalScrollLongTitles
-import io.github.parthibdebnath.openplayer.ui.theme.contentColorFor
+import io.github.parthibdebnath.openplayer.ui.theme.COLOR_TRANSITION_MS
+import io.github.parthibdebnath.openplayer.ui.theme.contentColorForBackground
+import io.github.parthibdebnath.openplayer.ui.theme.rememberCyclingBackground
+import io.github.parthibdebnath.openplayer.ui.components.TagEditor
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import io.github.parthibdebnath.openplayer.ui.theme.parseBackgroundColor
 import io.github.parthibdebnath.openplayer.util.AuthGateManager
 import io.github.parthibdebnath.openplayer.util.BrightnessVolumeController
@@ -124,11 +132,17 @@ fun AppRoot(
     }
     val openFailed by viewModel.openFailed.collectAsStateWithLifecycle()
 
-    val background = parseBackgroundColor(settings.backgroundColorHex)
-    val appColors = AppColors(
-        background = background,
-        onBackground = contentColorFor(background),
+    // The picked colour, or that colour going round the colour wheel. Either way it glides to a
+    // new colour rather than cutting to it, and so does the text and icon colour when a change of
+    // background takes it from white to black or back - all at once, those were jarring.
+    val baseBackground = parseBackgroundColor(settings.backgroundColorHex)
+    val background = rememberCyclingBackground(baseBackground, settings.colorCycle, settings.colorCycleSeconds)
+    val onBackground by animateColorAsState(
+        targetValue = contentColorForBackground(baseBackground, settings.colorCycle),
+        animationSpec = tween(COLOR_TRANSITION_MS),
+        label = "content colour",
     )
+    val appColors = AppColors(background = background, onBackground = onBackground)
 
     // The screen recording floating glass refracts; owned here so the tab bar and the gesture
     // overlay, which sit outside the screens, can reach it.
@@ -229,6 +243,41 @@ fun AppRoot(
                 percent = gesturePercent,
                 modifier = Modifier.fillMaxSize(),
             )
+
+            // Over everything, so holding a song's title anywhere - a list, the upcoming songs,
+            // the player - edits its tags in the same place.
+            val tagSong by viewModel.tagEditorSong.collectAsStateWithLifecycle()
+            tagSong?.let { song ->
+                val songTags by viewModel.tagEditorTags.collectAsStateWithLifecycle()
+                val allTags by viewModel.tags.collectAsStateWithLifecycle()
+                BackHandler { viewModel.closeTagEditor() }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClickLabel = "Close tags",
+                            onClick = viewModel::closeTagEditor,
+                        ),
+                ) {
+                    TagEditor(
+                        song = song,
+                        // Only once they're this song's: opened on another song, the last one's
+                        // tags would otherwise show for a moment.
+                        songTags = songTags.tags.takeIf { songTags.songId == song.id },
+                        allTags = allTags,
+                        onAdd = { name -> viewModel.addTag(song, name) },
+                        onRemove = { tag -> viewModel.removeTag(song, tag.id) },
+                        onClose = viewModel::closeTagEditor,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .statusBarsPadding()
+                            .padding(horizontal = 18.dp, vertical = 12.dp),
+                    )
+                }
+            }
         }
     }
 }

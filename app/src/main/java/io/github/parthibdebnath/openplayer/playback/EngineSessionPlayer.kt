@@ -33,13 +33,19 @@ class EngineSessionPlayer(
             .buildUpon()
             .addAll(*SKIP_COMMANDS)
             .removeAll(*NUDGE_COMMANDS)
+            .remove(Player.COMMAND_SET_REPEAT_MODE)
             .build()
 
     override fun isCommandAvailable(command: Int): Boolean = when (command) {
         in SKIP_COMMANDS -> true
         in NUDGE_COMMANDS -> false
+        Player.COMMAND_SET_REPEAT_MODE -> false
         else -> super.isCommandAvailable(command)
     }
+
+    // The app has no repeat control, and repeat set from a car or watch would have gone to the
+    // player directly, past the queue, looping a song with nothing in the app to turn it off.
+    override fun setRepeatMode(repeatMode: Int) = Unit
 
     // ExoPlayer's seek-back increment defaults to exactly five seconds, and these commands are
     // reachable from media buttons, the lock screen and accessibility actions even though the app

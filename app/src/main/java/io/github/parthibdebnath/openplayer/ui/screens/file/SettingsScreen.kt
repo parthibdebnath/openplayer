@@ -1,5 +1,6 @@
 package io.github.parthibdebnath.openplayer.ui.screens.file
 
+import kotlin.math.roundToInt
 import io.github.parthibdebnath.openplayer.ui.components.GlassNotification
 import io.github.parthibdebnath.openplayer.util.LocalHaptics
 import io.github.parthibdebnath.openplayer.data.settings.HapticStrength
@@ -62,6 +63,16 @@ import io.github.parthibdebnath.openplayer.viewmodel.MainViewModel
 import kotlinx.coroutines.launch
 
 /** Slider stops between min and max, exclusive of both ends, as CustomSlider counts them. */
+/** Seconds per trip round the colour wheel, slowest first; see the background colour's "Speed". */
+private val COLOR_CYCLE_SPEEDS = listOf(3600, 1800, 600, 300, 120, 60, 30, 15)
+
+/** A cycle's length as the speed slider shows it: "1 h", "10 min", "30 s". */
+private fun formatCyclePeriod(seconds: Int): String = when {
+    seconds >= 3600 -> "${seconds / 3600} h"
+    seconds >= 60 -> "${seconds / 60} min"
+    else -> "$seconds s"
+}
+
 private val CROSSFADE_STEPS = ((CROSSFADE_MAX_MS - CROSSFADE_MIN_MS) / CROSSFADE_STEP_MS) - 1
 
 /**
@@ -387,6 +398,44 @@ fun SettingsScreen(
                 onToggle = { viewModel.setDailyRandomBackground(it) },
                 bold = false,
             )
+            Spacer(Modifier.height(16.dp))
+            ToggleRow(
+                label = "Cycle through colours",
+                checked = settings.colorCycle,
+                onToggle = { viewModel.setColorCycle(it) },
+                bold = false,
+            )
+            SettingNote(
+                "The background slowly goes round the colour wheel, keeping the brightness of the colour " +
+                    "above, so text never flips between light and dark.",
+            )
+            if (settings.colorCycle) {
+                Spacer(Modifier.height(12.dp))
+                Text(text = "Speed", style = interTextStyle(16, bold = false), color = LocalAppColors.current.onBackground)
+                Spacer(Modifier.height(4.dp))
+                // Picked from a few set speeds, slow to fast, rather than any number of seconds:
+                // the difference between neighbouring speeds should be one you can see.
+                val speedIndex = COLOR_CYCLE_SPEEDS.indices.minBy { kotlin.math.abs(COLOR_CYCLE_SPEEDS[it] - settings.colorCycleSeconds) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CustomSlider(
+                        value = speedIndex.toFloat(),
+                        onValueChange = { viewModel.setColorCycleSeconds(COLOR_CYCLE_SPEEDS[it.roundToInt().coerceIn(COLOR_CYCLE_SPEEDS.indices)]) },
+                        valueRange = 0f..COLOR_CYCLE_SPEEDS.lastIndex.toFloat(),
+                        steps = COLOR_CYCLE_SPEEDS.size - 2,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    // Fixed width, like the crossfade's, so the slider doesn't resize as it changes.
+                    Text(
+                        text = formatCyclePeriod(COLOR_CYCLE_SPEEDS[speedIndex]),
+                        style = interTextStyle(16, bold = false),
+                        color = LocalAppColors.current.onBackground.copy(alpha = 0.6f),
+                        textAlign = TextAlign.End,
+                        maxLines = 1,
+                        modifier = Modifier.width(72.dp),
+                    )
+                }
+            }
         }
         Spacer(Modifier.height(34.dp))
 

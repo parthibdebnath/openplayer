@@ -139,6 +139,7 @@ fun SearchScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                                         label = if (song.id in favouriteIds) "Unfavourite" else "Favourite",
                                         onClick = { viewModel.toggleFavourite(song) },
                                     ),
+                                    ContextMenuItem(label = "Tags\u2026", onClick = { viewModel.openTagEditor(song) }),
                                 ),
                             )
                         }

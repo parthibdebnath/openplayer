@@ -53,6 +53,12 @@ object SettingsDefaults {
     const val BACKGROUND_COLOR_HEX = "#000000"
     const val DAILY_RANDOM_BACKGROUND = false
 
+    /** Off: the background stays the colour that was picked. */
+    const val COLOR_CYCLE = false
+
+    /** How long the cycling background takes to go once round the colour wheel. */
+    const val COLOR_CYCLE_SECONDS = 120
+
     /** On = icons sit bare, with no circle behind them. Glass theming overrides it while it's on. */
     const val HIDE_ICON_BACKGROUNDS = true
 
@@ -98,6 +104,8 @@ data class SettingsSnapshot(
     val backgroundPlayback: Boolean = SettingsDefaults.BACKGROUND_PLAYBACK,
     val backgroundColorHex: String = SettingsDefaults.BACKGROUND_COLOR_HEX,
     val dailyRandomBackground: Boolean = SettingsDefaults.DAILY_RANDOM_BACKGROUND,
+    val colorCycle: Boolean = SettingsDefaults.COLOR_CYCLE,
+    val colorCycleSeconds: Int = SettingsDefaults.COLOR_CYCLE_SECONDS,
     val hideIconBackgrounds: Boolean = SettingsDefaults.HIDE_ICON_BACKGROUNDS,
     val scrollLongTitles: Boolean = SettingsDefaults.SCROLL_LONG_TITLES,
     val restartSongOnOpen: Boolean = SettingsDefaults.RESTART_SONG_ON_OPEN,
@@ -142,6 +150,8 @@ class SettingsRepository(private val context: Context) {
         val BACKGROUND_PLAYBACK = bool("background_playback")
         val BACKGROUND_COLOR_HEX = text("background_color_hex")
         val DAILY_RANDOM_BACKGROUND = bool("daily_random_background")
+        val COLOR_CYCLE = bool("color_cycle")
+        val COLOR_CYCLE_SECONDS = int("color_cycle_seconds")
         val BACKGROUND_COLOR_DATE = text("background_color_date")
         val HIDE_ICON_BACKGROUNDS = bool("hide_icon_backgrounds")
         val SCROLL_LONG_TITLES = bool("scroll_long_titles")
@@ -184,6 +194,10 @@ class SettingsRepository(private val context: Context) {
             backgroundPlayback = p[Keys.BACKGROUND_PLAYBACK] ?: SettingsDefaults.BACKGROUND_PLAYBACK,
             backgroundColorHex = p[Keys.BACKGROUND_COLOR_HEX] ?: SettingsDefaults.BACKGROUND_COLOR_HEX,
             dailyRandomBackground = p[Keys.DAILY_RANDOM_BACKGROUND] ?: SettingsDefaults.DAILY_RANDOM_BACKGROUND,
+            colorCycle = p[Keys.COLOR_CYCLE] ?: SettingsDefaults.COLOR_CYCLE,
+            // Clamped on the way in too: an imported backup can hold any number.
+            colorCycleSeconds = (p[Keys.COLOR_CYCLE_SECONDS] ?: SettingsDefaults.COLOR_CYCLE_SECONDS)
+                .coerceIn(COLOR_CYCLE_MIN_SECONDS, COLOR_CYCLE_MAX_SECONDS),
             hideIconBackgrounds = p[Keys.HIDE_ICON_BACKGROUNDS] ?: SettingsDefaults.HIDE_ICON_BACKGROUNDS,
             scrollLongTitles = p[Keys.SCROLL_LONG_TITLES] ?: SettingsDefaults.SCROLL_LONG_TITLES,
             restartSongOnOpen = p[Keys.RESTART_SONG_ON_OPEN] ?: SettingsDefaults.RESTART_SONG_ON_OPEN,
@@ -237,6 +251,9 @@ class SettingsRepository(private val context: Context) {
     suspend fun setBackgroundPlayback(value: Boolean) = set(Keys.BACKGROUND_PLAYBACK, value)
     suspend fun setBackgroundColorHex(value: String) = set(Keys.BACKGROUND_COLOR_HEX, value)
     suspend fun setDailyRandomBackground(value: Boolean) = set(Keys.DAILY_RANDOM_BACKGROUND, value)
+    suspend fun setColorCycle(value: Boolean) = set(Keys.COLOR_CYCLE, value)
+    suspend fun setColorCycleSeconds(value: Int) =
+        set(Keys.COLOR_CYCLE_SECONDS, value.coerceIn(COLOR_CYCLE_MIN_SECONDS, COLOR_CYCLE_MAX_SECONDS))
     suspend fun setHideIconBackgrounds(value: Boolean) = set(Keys.HIDE_ICON_BACKGROUNDS, value)
     suspend fun setScrollLongTitles(value: Boolean) = set(Keys.SCROLL_LONG_TITLES, value)
     suspend fun setRestartSongOnOpen(value: Boolean) = set(Keys.RESTART_SONG_ON_OPEN, value)
@@ -368,3 +385,9 @@ class SettingsRepository(private val context: Context) {
         }
     }
 }
+
+/** The fastest the background may go round the colour wheel; any quicker reads as flashing. */
+const val COLOR_CYCLE_MIN_SECONDS = 15
+
+/** The slowest: once an hour, a change you'd only notice by coming back to it. */
+const val COLOR_CYCLE_MAX_SECONDS = 3600

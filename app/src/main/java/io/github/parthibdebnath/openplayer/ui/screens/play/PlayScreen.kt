@@ -1,5 +1,8 @@
 package io.github.parthibdebnath.openplayer.ui.screens.play
 
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalView
 import io.github.parthibdebnath.openplayer.ui.theme.LocalAppColors
@@ -38,6 +41,9 @@ import io.github.parthibdebnath.openplayer.ui.components.SmallControlsRow
 import io.github.parthibdebnath.openplayer.ui.components.TopHeader
 import io.github.parthibdebnath.openplayer.ui.components.UpcomingSongsList
 import io.github.parthibdebnath.openplayer.ui.components.multiFingerVerticalGesture
+import io.github.parthibdebnath.openplayer.ui.components.onTapOrHold
+import io.github.parthibdebnath.openplayer.ui.components.verticalSwipe
+import io.github.parthibdebnath.openplayer.util.LocalHaptics
 import io.github.parthibdebnath.openplayer.ui.theme.interTextStyle
 import io.github.parthibdebnath.openplayer.util.BrightnessVolumeController
 import io.github.parthibdebnath.openplayer.util.formatDurationMs
@@ -130,7 +136,35 @@ fun PlayScreen(
                 },
             ),
     ) {
-        Column(modifier = Modifier.fillMaxSize().padding(horizontal = SCREEN_GUTTER)) {
+        // Swiping up or down on the empty part of the screen - everything above the upcoming
+        // list, the header included - opens or closes the list, the way it grows and shrinks,
+        // without reaching for the small chevron. Only above the list: an open list leaves little
+        // room, and its rows take vertical drags for reordering.
+        val canToggleUpcoming = hasSong && playbackState.upcoming.isNotEmpty()
+        val haptics = LocalHaptics.current
+        var emptySpaceBottomPx by remember { mutableFloatStateOf(0f) }
+        fun setUpcoming(open: Boolean) {
+            if (open == upcomingExpanded) return
+            haptics?.tick()
+            toggledUpcoming = open
+            viewModel.setUpcomingExpanded(open)
+        }
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = SCREEN_GUTTER)
+                .then(
+                    if (canToggleUpcoming) {
+                        Modifier.verticalSwipe(
+                            startsInside = { it.y < emptySpaceBottomPx },
+                            onSwipeUp = { setUpcoming(true) },
+                            onSwipeDown = { setUpcoming(false) },
+                        )
+                    } else {
+                        Modifier
+                    },
+                ),
+        ) {
             TopHeader(
                 playlistLabel = playbackState.playlistLabel,
                 twentyFourHour = settings.twentyFourHourClock,
@@ -173,7 +207,14 @@ fun PlayScreen(
             }
 
             // The mockup's large empty region. Everything below this point is bottom-anchored.
-            Spacer(Modifier.weight(1f))
+            // Where it ends is where the swipe to open and close the upcoming list stops.
+            Spacer(
+                Modifier
+                    .weight(1f)
+                    // Position plus height rather than boundsInParent: a Spacer has no width, and
+                    // the bounds of something with no area come back as all zeros.
+                    .onGloballyPositioned { emptySpaceBottomPx = it.positionInParent().y + it.size.height },
+            )
 
             if (hasSong) {
                 UpcomingSongsList(
@@ -186,6 +227,7 @@ fun PlayScreen(
                     },
                     onSwapSlot = { viewModel.replaceUpcomingSlot(it) },
                     onReorder = { from, to -> viewModel.reorderUpcoming(from, to) },
+                    onHoldSong = viewModel::openTagEditor,
                 )
             }
 
@@ -201,10 +243,14 @@ fun PlayScreen(
                 modifier = Modifier
                     .fillMaxWidth(0.66f)
                     .height(lineHeightOf(20))
-                    // With nothing loaded, the prompt itself leads to the playlists.
+                    // With nothing loaded, the prompt itself leads to the playlists; with a song,
+                    // holding its title edits its tags.
                     .then(
                         if (hasSong) {
-                            Modifier
+                            Modifier.onTapOrHold(
+                                onHold = { playbackState.currentSong?.let(viewModel::openTagEditor) },
+                                holdLabel = "Edit tags",
+                            )
                         } else {
                             Modifier.clickable(
                                 interactionSource = remember { MutableInteractionSource() },
@@ -230,11 +276,9 @@ fun PlayScreen(
                 )
                 Spacer(Modifier.height(8.dp))
                 SmallControlsRow(
-                    repeatMode = playbackState.repeatMode,
                     shuffleOn = playbackState.shuffleOn,
                     outputDevice = outputDevice,
                     outputSwitchAvailable = bluetoothConnected,
-                    onCycleRepeat = { viewModel.cycleRepeatMode() },
                     onToggleShuffle = { viewModel.toggleShuffle() },
                     onToggleOutput = {
                         pendingOutputSwitch = if (outputDevice == OutputDevice.SPEAKER) OutputDevice.BLUETOOTH else OutputDevice.SPEAKER

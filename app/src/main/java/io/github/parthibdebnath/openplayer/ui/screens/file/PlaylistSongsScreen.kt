@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.parthibdebnath.openplayer.data.model.FAVOURITES_LABEL
 import io.github.parthibdebnath.openplayer.data.model.FAVOURITES_PLAYLIST_ID
+import io.github.parthibdebnath.openplayer.data.model.tagIdOf
 import io.github.parthibdebnath.openplayer.data.model.Song
 import io.github.parthibdebnath.openplayer.data.model.SongSort
 import io.github.parthibdebnath.openplayer.ui.components.MarqueeText
@@ -72,9 +73,17 @@ fun PlaylistSongsScreen(
 ) {
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val playlist = playlists.firstOrNull { it.id == playlistId }
-    // Favourites is a list, not a folder: songs can't be copied into it.
+    // Favourites and tag lists are lists, not folders: songs can't be copied into them.
     val isFavourites = playlistId == FAVOURITES_PLAYLIST_ID
-    val playlistName = if (isFavourites) FAVOURITES_LABEL else playlist?.displayName.orEmpty()
+    val tagId = tagIdOf(playlistId)
+    val tags by viewModel.tags.collectAsStateWithLifecycle()
+    val tag = tagId?.let { id -> tags.firstOrNull { it.id == id } }
+    val isFolder = !isFavourites && tagId == null
+    val playlistName = when {
+        isFavourites -> FAVOURITES_LABEL
+        tagId != null -> tag?.name.orEmpty()
+        else -> playlist?.displayName.orEmpty()
+    }
     val favouriteIds by viewModel.favouriteIds.collectAsStateWithLifecycle()
     // Held by the ViewModel so it survives leaving this tab - see MainViewModel.viewedSongs.
     LaunchedEffect(playlistId) { viewModel.onViewPlaylist(playlistId) }
@@ -213,6 +222,8 @@ fun PlaylistSongsScreen(
             val emptyMessage = when {
                 !songsLoaded -> null
                 songs.isEmpty() && isFavourites -> "No favourites yet. Tap and hold a song and choose Favourite."
+                // The last song lost the tag while the list was open; the tag itself is gone.
+                songs.isEmpty() && tagId != null -> "No songs have this tag any more."
                 songs.isEmpty() && scanning -> null
                 songs.isEmpty() -> "No audio files in this folder yet. Tap + to copy some in."
                 visibleSongs.isEmpty() -> "No songs match “${searchQuery.trim()}”"
@@ -297,6 +308,13 @@ fun PlaylistSongsScreen(
                                         label = if (song.id in favouriteIds) "Unfavourite" else "Favourite",
                                         onClick = { viewModel.toggleFavourite(song) },
                                     ),
+                                    ContextMenuItem(label = "Tags\u2026", onClick = { viewModel.openTagEditor(song) }),
+                                ) + listOfNotNull(
+                                    // In a tag's own list, the quick way to take a song out of it.
+                                    tagId?.let { id ->
+                                        ContextMenuItem(label = "Remove tag", onClick = { viewModel.removeTag(song, id) })
+                                    },
+                                ) + listOf(
                                     ContextMenuItem(label = "Rename", onClick = { renamingSong = song }),
                                     ContextMenuItem(label = "Remove", destructive = true, onClick = {
                                         scope.launch {
@@ -338,7 +356,7 @@ fun PlaylistSongsScreen(
             // other three.
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (!isFavourites) {
+            if (isFolder) {
                 GlassIconButton(
                     icon = Icons.Filled.Add,
                     contentDescription = "Add songs",

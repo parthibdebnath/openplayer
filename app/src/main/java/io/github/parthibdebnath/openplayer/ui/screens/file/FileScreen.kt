@@ -104,6 +104,7 @@ fun FileScreen(
             onPrevious = { viewModel.skipPrevious() },
             onSeek = { viewModel.seekTo(it) },
             playbackRestored = playbackRestored,
+            onHoldTitle = viewModel::openTagEditor,
             // Toggles: tapping the gear while already in Settings goes back.
             onOpenSettings = {
                 destination = if (destination is FileDestination.Settings || destination is FileDestination.Licences) {

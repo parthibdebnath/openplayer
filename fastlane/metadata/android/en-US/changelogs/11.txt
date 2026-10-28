@@ -1,0 +1,4 @@
+• Tags: hold a song's title anywhere (or choose Tags… in a list) to tag it. Each tag becomes a list in Playlists; songs stay one file
+• Background colour can slowly cycle through colours, at a speed you choose, without the text flipping between light and dark
+• Swipe up or down on the empty space on the Play screen to open or close the upcoming songs
+• The repeat button is gone

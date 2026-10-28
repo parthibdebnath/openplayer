@@ -6,8 +6,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.Repeat
-import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.runtime.Composable
@@ -15,17 +13,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.parthibdebnath.openplayer.audio.OutputDevice
-import io.github.parthibdebnath.openplayer.audio.RepeatMode
 
-/** The repeat/shuffle/output-device row, left-aligned above the time position text on the Play screen. */
+/**
+ * The shuffle/favourite/output-device row, left-aligned above the time position text on the Play
+ * screen. There's no repeat button: it was never used, and playback always runs with repeat off.
+ */
 @Composable
 fun SmallControlsRow(
-    repeatMode: RepeatMode,
     shuffleOn: Boolean,
     outputDevice: OutputDevice,
     /** Only true when a Bluetooth media output is actually connected - with nothing to switch to, there's no button. */
     outputSwitchAvailable: Boolean,
-    onCycleRepeat: () -> Unit,
     onToggleShuffle: () -> Unit,
     onToggleOutput: () -> Unit,
     /** Whether the current song is a favourite; null when it can't be one (nothing loaded, or a file from another app). */
@@ -34,15 +32,6 @@ fun SmallControlsRow(
     modifier: Modifier = Modifier,
 ) {
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-        GlassIconButton(
-            icon = if (repeatMode == RepeatMode.ONE) Icons.Filled.RepeatOne else Icons.Filled.Repeat,
-            contentDescription = "Repeat: $repeatMode",
-            onClick = onCycleRepeat,
-            circleSize = 35.dp,
-            iconSize = 20.dp,
-            opacity = if (repeatMode == RepeatMode.OFF) 0.5f else 1f,
-        )
-        androidx.compose.foundation.layout.Spacer(Modifier.width(10.dp))
         GlassIconButton(
             icon = Icons.Filled.Shuffle,
             contentDescription = "Shuffle",

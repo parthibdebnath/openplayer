@@ -85,11 +85,21 @@ fun GlassTextField(
     // frame or more later, by which time more may have been typed; mistaking one of those echoes
     // for a change from elsewhere would overwrite the newer text and throw the caret to the end.
     val recentEdits = remember { ArrayDeque<String>(RECENT_EDITS) }
+    // Text put in because the caller asked, which isn't typing and mustn't be remembered as such:
+    // recorded as an edit, a field cleared once (a tag added) ignored being cleared a second time,
+    // taking the "" handed in as an old echo of its own.
+    val setFromOutside = remember { arrayOfNulls<String>(1) }
 
     LaunchedEffect(state) {
         snapshotFlow { state.text.toString() }
             .drop(1)
             .collect { text ->
+                val fromOutside = text == setFromOutside[0]
+                // Cleared either way: if typing overtook it, it must not swallow a later edit
+                // that happens to read the same.
+                setFromOutside[0] = null
+                // The caller's own value coming round again; it already has it.
+                if (fromOutside) return@collect
                 if (recentEdits.size == RECENT_EDITS) recentEdits.removeFirst()
                 recentEdits.addLast(text)
                 currentOnValueChange(text)
@@ -99,6 +109,7 @@ fun GlassTextField(
     LaunchedEffect(value) {
         if (value != state.text.toString() && value !in recentEdits) {
             recentEdits.clear()
+            setFromOutside[0] = value
             state.setTextAndPlaceCursorAtEnd(value)
         }
     }

@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.automirrored.filled.CallMerge
+import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -43,6 +45,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.parthibdebnath.openplayer.data.model.FAVOURITES_LABEL
 import io.github.parthibdebnath.openplayer.data.model.FAVOURITES_PLAYLIST_ID
 import io.github.parthibdebnath.openplayer.data.model.Playlist
+import io.github.parthibdebnath.openplayer.data.model.Tag
+import io.github.parthibdebnath.openplayer.data.model.tagPlaylistId
 import io.github.parthibdebnath.openplayer.ui.components.ContextMenuItem
 import io.github.parthibdebnath.openplayer.ui.components.GlassContextMenu
 import io.github.parthibdebnath.openplayer.ui.components.GlassIconButton
@@ -71,6 +75,7 @@ fun PlaylistListScreen(
     val overview by viewModel.libraryOverview.collectAsStateWithLifecycle()
     val playlists = overview?.playlists.orEmpty()
     val favourites = overview?.favourites.orEmpty()
+    val tags = overview?.tags.orEmpty()
     val settings by viewModel.settingsSnapshot.collectAsStateWithLifecycle()
     val currentSong by viewModel.currentSong.collectAsStateWithLifecycle()
     val scanning by viewModel.scanning.collectAsStateWithLifecycle()
@@ -82,15 +87,19 @@ fun PlaylistListScreen(
     var contextMenuPlaylistId by remember { mutableStateOf<Long?>(null) }
     var renamingPlaylist by remember { mutableStateOf<Playlist?>(null) }
     var deletingPlaylistId by remember { mutableStateOf<Long?>(null) }
+    var tagMenuId by remember { mutableStateOf<Long?>(null) }
+    var renamingTag by remember { mutableStateOf<Tag?>(null) }
+    var deletingTag by remember { mutableStateOf<Tag?>(null) }
 
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) pendingFolderUri = uri
     }
 
     // Back cancels naming; these dialogs had no way out other than confirming.
-    BackHandler(enabled = renamingPlaylist != null || pendingFolderUri != null) {
+    BackHandler(enabled = renamingPlaylist != null || pendingFolderUri != null || renamingTag != null) {
         renamingPlaylist = null
         pendingFolderUri = null
+        renamingTag = null
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -104,7 +113,19 @@ fun PlaylistListScreen(
         // stacked on top of each other.
         val playlistBeingRenamed = renamingPlaylist
         val folderAwaitingName = pendingFolderUri
-        if (playlistBeingRenamed != null) {
+        val tagBeingRenamed = renamingTag
+        if (tagBeingRenamed != null) {
+            NamingDialog(
+                title = "Rename tag",
+                initialValue = tagBeingRenamed.name,
+                onConfirm = { name ->
+                    // Onto another tag's name, the two lists become one.
+                    if (name.isNotBlank()) viewModel.renameTag(tagBeingRenamed.id, name)
+                    renamingTag = null
+                },
+                modifier = Modifier.padding(bottom = 16.dp),
+            )
+        } else if (playlistBeingRenamed != null) {
             NamingDialog(
                 title = "Rename playlist",
                 initialValue = playlistBeingRenamed.displayName,
@@ -195,6 +216,63 @@ fun PlaylistListScreen(
                         }
                     }
                 }
+                // A list for each tag, which exists for as long as some song carries it.
+                items(tags, key = { "tag-${it.id}" }) { tag ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp)
+                            .combinedClickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onLongClickLabel = "Tag options",
+                                onLongClick = { tagMenuId = tag.id },
+                                onClick = { onOpenPlaylist(tagPlaylistId(tag.id)) },
+                            ),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            modifier = Modifier.size(30.dp).glassSurface(shape = CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Label,
+                                contentDescription = null,
+                                tint = LocalAppColors.current.onBackground,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                        Spacer(Modifier.size(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = tag.name,
+                                style = interTextStyle(20, bold = false),
+                                color = LocalAppColors.current.onBackground,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = if (tag.songCount == 1) "1 song" else "${tag.songCount} songs",
+                                style = interTextStyle(14, bold = false),
+                                color = LocalAppColors.current.onBackground.copy(alpha = 0.55f),
+                                maxLines = 1,
+                            )
+                        }
+                        if (tagMenuId == tag.id) {
+                            GlassContextMenu(
+                                expanded = true,
+                                onDismissRequest = { tagMenuId = null },
+                                offset = IntOffset(0, 0),
+                                items = listOf(
+                                    ContextMenuItem(label = "Play", onClick = { viewModel.playTag(tag, shuffled = false) }),
+                                    ContextMenuItem(label = "Shuffle", onClick = { viewModel.playTag(tag, shuffled = true) }),
+                                    ContextMenuItem(label = "Rename", onClick = { renamingTag = tag }),
+                                    ContextMenuItem(label = "Delete tag", destructive = true, onClick = { deletingTag = tag }),
+                                ),
+                            )
+                        }
+                    }
+                }
                 itemsIndexed(playlists, key = { _, playlist -> playlist.id }) { index, playlist ->
                     Row(
                         modifier = Modifier
@@ -274,6 +352,20 @@ fun PlaylistListScreen(
                     }
                 }
             }
+        }
+
+        deletingTag?.let { tag ->
+            GlassNotification(
+                title = "Delete the tag \u201C${tag.name}\u201D?",
+                // Only the label goes; it's worth saying so, since the list looks like a playlist.
+                message = "It's taken off every song. No songs or files are removed.",
+                onConfirm = {
+                    viewModel.deleteTag(tag.id)
+                    deletingTag = null
+                },
+                onDismiss = { deletingTag = null },
+                modifier = Modifier.padding(bottom = 12.dp),
+            )
         }
 
         deletingPlaylistId?.let { id ->

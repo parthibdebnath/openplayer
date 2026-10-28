@@ -20,8 +20,6 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.draw.rotate
 import io.github.parthibdebnath.openplayer.ui.theme.LocalAppColors
@@ -86,6 +84,8 @@ fun UpcomingSongsList(
     onSwapSlot: (Int) -> Unit,
     onReorder: (from: Int, to: Int) -> Unit,
     modifier: Modifier = Modifier,
+    /** A title held: its tags are edited. */
+    onHoldSong: (Song) -> Unit = {},
 ) {
     val drag = remember { UpcomingDragState() }
     val scope = rememberCoroutineScope()
@@ -162,6 +162,7 @@ fun UpcomingSongsList(
             lastIndex = lastIndex,
             onSwap = { onSwapSlot(0) },
             onDrop = ::drop,
+            onHold = onHoldSong,
         )
 
         // Expands from the bottom edge so the rows unfurl upward, matching where the list sits on
@@ -195,6 +196,7 @@ fun UpcomingSongsList(
                         lastIndex = lastIndex,
                         onSwap = { onSwapSlot(index) },
                         onDrop = ::drop,
+                        onHold = onHoldSong,
                     )
                 }
             }
@@ -250,6 +252,7 @@ private fun UpcomingDraggableRow(
     lastIndex: Int,
     onSwap: () -> Unit,
     onDrop: (cancelled: Boolean) -> Unit,
+    onHold: (Song) -> Unit,
 ) {
     val isDragged = moving && drag.index == index
     // The rows between where the dragged one started and where it's headed step aside by one
@@ -322,7 +325,7 @@ private fun UpcomingDraggableRow(
             ),
     ) {
         // A slot with no song left to fill it stays as blank space of the same height.
-        if (song != null) UpcomingRow(song = song, opacity = opacity, onSwap = onSwap)
+        if (song != null) UpcomingRow(song = song, opacity = opacity, onSwap = onSwap, onHold = { onHold(song) })
     }
 }
 
@@ -341,7 +344,7 @@ private fun <T> rowSpring() = spring<T>(dampingRatio = Spring.DampingRatioNoBoun
 private const val REORDER_TIMEOUT_MS = 500L
 
 @Composable
-private fun UpcomingRow(song: Song, opacity: Float, onSwap: () -> Unit) {
+private fun UpcomingRow(song: Song, opacity: Float, onSwap: () -> Unit, onHold: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxSize(),
         verticalAlignment = Alignment.CenterVertically,
@@ -349,7 +352,7 @@ private fun UpcomingRow(song: Song, opacity: Float, onSwap: () -> Unit) {
         // Static by default: a long title stays cut off rather than scrolling. These are
         // glanceable "what's next" entries, and several lines of text animating at once is more
         // distracting than the information is worth. Tapping one scrolls it a few times, so a
-        // name that's cut off can still be read. Keyed on the song, because the rows are slots:
+        // name that's cut off can still be read; holding one edits its tags. Keyed on the song, because the rows are slots:
         // without it a scroll asked for one song carried on when another moved into its place.
         key(song.id) {
             var scrollRequest by remember { mutableIntStateOf(0) }
@@ -361,7 +364,7 @@ private fun UpcomingRow(song: Song, opacity: Float, onSwap: () -> Unit) {
                 idleOverflow = TextOverflow.Clip,
                 modifier = Modifier
                     .weight(1f)
-                    .onPlainTap { scrollRequest++ },
+                    .onTapOrHold(onTap = { scrollRequest++ }, onHold = onHold, holdLabel = "Edit tags"),
             )
         }
         Spacer(Modifier.width(16.dp))
@@ -373,29 +376,5 @@ private fun UpcomingRow(song: Song, opacity: Float, onSwap: () -> Unit) {
             iconSize = 16.dp,
             opacity = opacity,
         )
-    }
-}
-
-/**
- * Calls [onTap] for a quick tap that doesn't move, without consuming anything. A tap detector that
- * consumed the touch would mark it as claimed by a child, which stops the row's drag-to-reorder and
- * the tab swipe from starting on the title; this one only watches. Moving past touch slop, a
- * gesture someone else consumed, or holding past the long-press timeout isn't a tap.
- */
-private fun Modifier.onPlainTap(onTap: () -> Unit): Modifier = pointerInput(Unit) {
-    awaitEachGesture {
-        val down = awaitFirstDown(requireUnconsumed = false)
-        val slop = viewConfiguration.touchSlop
-        while (true) {
-            val event = awaitPointerEvent()
-            val change = event.changes.firstOrNull { it.id == down.id } ?: return@awaitEachGesture
-            if (change.isConsumed || (change.position - down.position).getDistance() > slop) {
-                return@awaitEachGesture
-            }
-            if (!change.pressed) {
-                if (change.uptimeMillis - down.uptimeMillis < viewConfiguration.longPressTimeoutMillis) onTap()
-                return@awaitEachGesture
-            }
-        }
     }
 }

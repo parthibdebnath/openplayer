@@ -41,6 +41,8 @@ fun NonHomePlayerBar(
     onOpenSettings: (() -> Unit)? = null,
     // False while the last session's song is being put back, when the prompt would be wrong.
     playbackRestored: Boolean = true,
+    /** The title held: the song's tags are edited. */
+    onHoldTitle: ((Song) -> Unit)? = null,
 ) {
     androidx.compose.foundation.layout.Column(modifier = modifier.fillMaxWidth()) {
         DottedDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -50,7 +52,17 @@ fun NonHomePlayerBar(
         MarqueeText(
             text = currentSong?.displayName ?: if (playbackRestored) "Start a playlist" else "",
             style = interTextStyle(18, bold = true),
-            modifier = Modifier.fillMaxWidth().height(24.dp).padding(horizontal = 18.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(24.dp)
+                .padding(horizontal = 18.dp)
+                .then(
+                    if (currentSong != null && onHoldTitle != null) {
+                        Modifier.onTapOrHold(onHold = { onHoldTitle(currentSong) }, holdLabel = "Edit tags")
+                    } else {
+                        Modifier
+                    },
+                ),
         )
         MarqueeText(
             text = currentSong?.artist.orEmpty(),

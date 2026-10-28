@@ -108,6 +108,7 @@ fun SfxScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
             onPrevious = { viewModel.skipPrevious() },
             onSeek = { viewModel.seekTo(it) },
             playbackRestored = playbackRestored,
+            onHoldTitle = viewModel::openTagEditor,
         )
     }
 }

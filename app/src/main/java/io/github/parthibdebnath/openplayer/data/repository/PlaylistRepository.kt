@@ -11,6 +11,8 @@ import io.github.parthibdebnath.openplayer.data.db.SongEntity
 import io.github.parthibdebnath.openplayer.data.db.chunkedQuery
 import io.github.parthibdebnath.openplayer.data.model.Playlist
 import io.github.parthibdebnath.openplayer.data.model.Song
+import io.github.parthibdebnath.openplayer.data.model.Tag
+import io.github.parthibdebnath.openplayer.data.model.normalizeTagName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,6 +33,7 @@ class PlaylistRepository(private val context: Context) {
     private val db = AppDatabase.get(context)
     private val playlistDao = db.playlistDao()
     private val songDao = db.songDao()
+    private val tagDao = db.tagDao()
     private val scanner = PlaylistScanner(context, db)
 
     // flowOn matters here: without it the entity-to-model mapping runs on whichever dispatcher
@@ -120,6 +123,7 @@ class PlaylistRepository(private val context: Context) {
             )
         }
         playlistDao.delete(entity)
+        tagDao.pruneOrphans()
     }
 
     private val activeScans = AtomicInteger(0)
@@ -133,7 +137,8 @@ class PlaylistRepository(private val context: Context) {
     private suspend fun <T> whileScanning(block: suspend () -> T): T {
         synchronized(activeScans) { _scanning.value = activeScans.incrementAndGet() > 0 }
         return try {
-            block()
+            // A scan drops the rows of files that have gone; their tags go with them here.
+            block().also { runCatching { tagDao.pruneOrphans() } }
         } finally {
             synchronized(activeScans) { _scanning.value = activeScans.decrementAndGet() > 0 }
         }
@@ -184,6 +189,9 @@ class PlaylistRepository(private val context: Context) {
                     includeSubfolders = playlist.includeSubfolders,
                     renamedSongs = renamed,
                     favourites = songs.filter { it.isFavourite }.map { it.fileName },
+                    tags = tagDao.getTagNamesForPlaylist(playlist.id)
+                        .groupBy({ it.fileName }, { it.tagName })
+                        .mapValues { (_, names) -> names.sortedBy { it.lowercase() } },
                 )
             },
         )
@@ -258,6 +266,13 @@ class PlaylistRepository(private val context: Context) {
             songDao.renameByFileName(id, fileName, displayName)
         }
         playlist.favourites.forEach { songDao.favouriteByFileName(id, it) }
+        // Backups come from files anyone can write, so names are tidied as if typed.
+        playlist.tags.forEach { (fileName, names) ->
+            val songIds = tagDao.songIdsByFileName(id, fileName)
+            names.map(::normalizeTagName).filter { it.isNotEmpty() }.distinctBy { it.lowercase() }.forEach { name ->
+                songIds.forEach { songId -> tagDao.addTag(songId, name) }
+            }
+        }
     }
 
     /** Every favourite song, from every playlist. */
@@ -269,6 +284,53 @@ class PlaylistRepository(private val context: Context) {
 
     suspend fun setFavourite(songId: Long, favourite: Boolean) = withContext(Dispatchers.IO) {
         songDao.updateFavourite(songId, favourite)
+    }
+
+    // --- Tags ----------------------------------------------------------------------------------
+
+    /** Every tag that some song carries, with its song count. */
+    fun observeTags(): Flow<List<Tag>> =
+        tagDao.observeTags()
+            .map { list -> list.map { Tag(it.id, it.name, it.songCount) } }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.IO)
+
+    /** The songs carrying a tag, from every playlist. */
+    fun observeSongsWithTag(tagId: Long): Flow<List<Song>> =
+        tagDao.observeSongsWithTag(tagId)
+            .map { list -> list.map { it.toModel() } }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.IO)
+
+    suspend fun getSongsWithTag(tagId: Long): List<Song> = withContext(Dispatchers.IO) {
+        tagDao.getSongsWithTag(tagId).map { it.toModel() }
+    }
+
+    fun observeTagsForSong(songId: Long): Flow<List<Tag>> =
+        tagDao.observeTagsForSong(songId)
+            .map { list -> list.map { Tag(it.id, it.name) } }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.IO)
+
+    /** Puts a tag on a song, creating the tag (and with it its playlist) if it's new. */
+    suspend fun addTag(songId: Long, rawName: String) = withContext(Dispatchers.IO) {
+        val name = normalizeTagName(rawName)
+        if (name.isNotEmpty()) tagDao.addTag(songId, name)
+    }
+
+    suspend fun removeTag(songId: Long, tagId: Long) = withContext(Dispatchers.IO) {
+        tagDao.removeTag(songId, tagId)
+    }
+
+    /** Renames a tag everywhere; onto an existing tag's name, the two become one. */
+    suspend fun renameTag(tagId: Long, rawName: String) = withContext(Dispatchers.IO) {
+        val name = normalizeTagName(rawName)
+        if (name.isNotEmpty()) tagDao.renameOrMerge(tagId, name)
+    }
+
+    /** Takes a tag off every song. Only the tag goes; no song or file is touched. */
+    suspend fun deleteTag(tagId: Long) = withContext(Dispatchers.IO) {
+        tagDao.deleteTag(tagId)
     }
 
     suspend fun renameSong(songId: Long, newDisplayName: String) = withContext(Dispatchers.IO) {

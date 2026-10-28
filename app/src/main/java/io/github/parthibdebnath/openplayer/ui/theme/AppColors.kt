@@ -14,8 +14,13 @@ data class AppColors(
     val background: Color,
     val onBackground: Color,
 ) {
-    /** True when the background is light enough that content has to be drawn dark to stay readable. */
-    val isLightBackground: Boolean get() = onBackground == Color.Black
+    /**
+     * True when the background is light enough that content has to be drawn dark to stay readable.
+     * Judged by the content colour's luminance rather than by it being exactly black: the content
+     * colour glides between white and black when the background changes, and the surfaces keyed off
+     * this should switch half way through that, along with it, not only once it has finished.
+     */
+    val isLightBackground: Boolean get() = onBackground.luminance() < 0.5f
 }
 
 val LocalAppColors = compositionLocalOf {

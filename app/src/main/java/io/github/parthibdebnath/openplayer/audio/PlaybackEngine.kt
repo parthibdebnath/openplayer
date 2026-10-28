@@ -842,7 +842,9 @@ class PlaybackEngine private constructor(context: Context) {
                     ?.takeIf { it.songId == savedCurrent.id }
                     ?.positionMs ?: 0L
             }
-            val repeat = runCatching { RepeatMode.valueOf(saved.repeatMode) }.getOrDefault(RepeatMode.OFF)
+            // Always off: the repeat button is gone, and a queue saved with repeat on would have
+            // kept looping with no way left to stop it.
+            val repeat = RepeatMode.OFF
             queueManager.restore(
                 pool = saved.poolSongIds.mapNotNull(byId::get),
                 label = saved.playlistLabel,

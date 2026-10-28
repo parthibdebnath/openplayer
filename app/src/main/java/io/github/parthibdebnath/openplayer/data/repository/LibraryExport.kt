@@ -38,6 +38,8 @@ data class ExportedPlaylist(
     val renamedSongs: Map<String, String> = emptyMap(),
     /** File names of the songs marked as favourites. */
     val favourites: List<String> = emptyList(),
+    /** Tags on the playlist's songs: file name to tag names. Absent from files before tags. */
+    val tags: Map<String, List<String>> = emptyMap(),
 )
 
 /**

@@ -16,10 +16,11 @@ import io.github.parthibdebnath.openplayer.audio.OutputDevice
 import io.github.parthibdebnath.openplayer.audio.PlayOrder
 import io.github.parthibdebnath.openplayer.audio.PlaybackEngine
 import io.github.parthibdebnath.openplayer.audio.PlaybackUiState
-import io.github.parthibdebnath.openplayer.audio.RepeatMode
 import io.github.parthibdebnath.openplayer.audio.SleepTimerState
 import io.github.parthibdebnath.openplayer.data.model.Playlist
 import io.github.parthibdebnath.openplayer.data.model.Song
+import io.github.parthibdebnath.openplayer.data.model.Tag
+import io.github.parthibdebnath.openplayer.data.model.tagIdOf
 import io.github.parthibdebnath.openplayer.data.repository.EXTERNAL_LABEL
 import io.github.parthibdebnath.openplayer.data.repository.ExternalSongs
 import io.github.parthibdebnath.openplayer.data.repository.PlaylistRepository
@@ -111,7 +112,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             when (id) {
                 null -> flowOf(emptyList())
                 FAVOURITES_PLAYLIST_ID -> playlistRepository.observeFavourites()
-                else -> playlistRepository.observeSongs(id)
+                else -> tagIdOf(id)?.let { playlistRepository.observeSongsWithTag(it) }
+                    ?: playlistRepository.observeSongs(id)
             }.map { songs -> ViewedSongs(id, songs) }
         }
         // Sorted here, off the main thread, in the order the user picked - "play in order" then
@@ -130,14 +132,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val favourites: StateFlow<List<Song>> = favouritesOrNull.mapState { it.orEmpty() }
 
+    /** Every tag some song carries, in name order; null until first read. */
+    private val tagsOrNull: StateFlow<List<Tag>?> = playlistRepository.observeTags()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** Every tag in use, each of which is also a playlist. */
+    val tags: StateFlow<List<Tag>> = tagsOrNull.mapState { it.orEmpty() }
+
     /**
-     * Playlists and favourites together, null until both have been read: the playlist list shows
-     * nothing at all rather than a first frame that's then rearranged.
+     * Playlists, favourites and tags together, null until all three have been read: the playlist
+     * list shows nothing at all rather than a first frame that's then rearranged.
      */
-    val libraryOverview: StateFlow<LibraryOverview?> = combine(playlistsOrNull, favouritesOrNull) { playlists, favourites ->
-        // Favourites are waited for too, so the Favourites row doesn't drop in above the playlists
+    val libraryOverview: StateFlow<LibraryOverview?> = combine(playlistsOrNull, favouritesOrNull, tagsOrNull) { playlists, favourites, tags ->
+        // Favourites and tags are waited for too, so their rows don't drop in above the playlists
         // a moment after they appear.
-        if (playlists == null || favourites == null) null else LibraryOverview(playlists, favourites)
+        if (playlists == null || favourites == null || tags == null) null else LibraryOverview(playlists, favourites, tags)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     /** Which songs are favourites, for hearts and menu labels. */
@@ -156,6 +165,63 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (song.isExternal) return@launchSafely
         playlistRepository.setFavourite(song.id, song.id !in favouriteIds.value)
         backupNudge.value++
+    }
+
+    // --- Tags ----------------------------------------------------------------------------------
+
+    private val _tagEditorSong = MutableStateFlow<Song?>(null)
+
+    /** The song whose tags are being edited, from wherever its title was held; null when closed. */
+    val tagEditorSong: StateFlow<Song?> = _tagEditorSong.asStateFlow()
+
+    /**
+     * The edited song's tags, with the id of the song they belong to: opened on another song, the
+     * editor would otherwise show the last one's tags for a moment (see [viewedSongs]).
+     */
+    val tagEditorTags: StateFlow<SongTags> = _tagEditorSong
+        .flatMapLatest { song ->
+            if (song == null || song.isExternal) {
+                flowOf(SongTags(song?.id, emptyList()))
+            } else {
+                playlistRepository.observeTagsForSong(song.id).map { SongTags(song.id, it) }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SongTags(null, emptyList()))
+
+    fun openTagEditor(song: Song) {
+        _tagEditorSong.value = song
+    }
+
+    fun closeTagEditor() {
+        _tagEditorSong.value = null
+    }
+
+    /** Files opened from other apps aren't in the library, so, like favourites, can't be tagged. */
+    fun addTag(song: Song, name: String) = launchSafely {
+        if (song.isExternal) return@launchSafely
+        playlistRepository.addTag(song.id, name)
+        backupNudge.value++
+    }
+
+    fun removeTag(song: Song, tagId: Long) = launchSafely {
+        playlistRepository.removeTag(song.id, tagId)
+        backupNudge.value++
+    }
+
+    fun renameTag(tagId: Long, name: String) = launchSafely {
+        playlistRepository.renameTag(tagId, name)
+        backupNudge.value++
+    }
+
+    fun deleteTag(tagId: Long) = launchSafely {
+        playlistRepository.deleteTag(tagId)
+        backupNudge.value++
+    }
+
+    /** Plays every song with a tag, in the order its list shows them, or shuffled. */
+    fun playTag(tag: Tag, shuffled: Boolean) = launchSafely {
+        val songs = settingsSnapshot.value.songSort.sort(playlistRepository.getSongsWithTag(tag.id))
+        if (shuffled) playPlaylistShuffled(songs, tag.name) else playPlaylistInOrder(songs, tag.name)
     }
 
     /** True while a folder is being indexed; the song list says so rather than looking empty. */
@@ -884,17 +950,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun replaceUpcomingSlot(index: Int) = playbackEngine.replaceUpcomingSlot(index)
     fun reorderUpcoming(from: Int, to: Int) = playbackEngine.reorderUpcoming(from, to)
 
-    fun setRepeatMode(mode: RepeatMode) = playbackEngine.setRepeatMode(mode)
-
-    fun cycleRepeatMode() {
-        val next = when (playbackEngine.queueManager.repeatMode) {
-            RepeatMode.OFF -> RepeatMode.ALL
-            RepeatMode.ALL -> RepeatMode.ONE
-            RepeatMode.ONE -> RepeatMode.OFF
-        }
-        setRepeatMode(next)
-    }
-
     fun setShuffleEnabled(enabled: Boolean) = playbackEngine.setShuffleEnabled(enabled)
 
     fun toggleShuffle() = setShuffleEnabled(playbackUiState.value.shuffleOn.not())
@@ -937,6 +992,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Turning it on takes effect immediately rather than at the next midnight.
         if (value) settingsRepository.applyDailyRandomColorIfDue(todayStamp())
     }
+
+    fun setColorCycle(value: Boolean) = launchSafely { settingsRepository.setColorCycle(value) }
+
+    fun setColorCycleSeconds(value: Int) = launchSafely { settingsRepository.setColorCycleSeconds(value) }
 
     private fun todayStamp(): String =
         java.time.LocalDate.now().toString()
@@ -997,7 +1056,10 @@ data class RestoreOffer(val backup: LibraryExport, val folderUri: String, val pl
 data class ViewedSongs(val playlistId: Long?, val songs: List<Song>)
 
 /** What the playlist list shows, once both parts have been read. */
-data class LibraryOverview(val playlists: List<Playlist>, val favourites: List<Song>)
+data class LibraryOverview(val playlists: List<Playlist>, val favourites: List<Song>, val tags: List<Tag>)
+
+/** One song's tags, and which song that is - see [MainViewModel.tagEditorTags]. */
+data class SongTags(val songId: Long?, val tags: List<Tag>)
 
 /** Library-wide search results and the (trimmed) query they answer. */
 data class SearchResults(val query: String, val songs: List<Song>)
