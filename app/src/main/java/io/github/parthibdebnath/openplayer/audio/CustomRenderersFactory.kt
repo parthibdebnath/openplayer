@@ -12,6 +12,9 @@ import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.RenderersFactory
 import androidx.media3.exoplayer.audio.AudioRendererEventListener
 import androidx.media3.exoplayer.audio.DefaultAudioSink
+import io.github.parthibdebnath.openplayer.audio.mix.MixChannelAudioProcessor
+import io.github.parthibdebnath.openplayer.audio.mix.MixingAudioProcessorChain
+import io.github.parthibdebnath.openplayer.audio.mix.TempoAudioProcessor
 import androidx.media3.exoplayer.audio.SilenceSkippingAudioProcessor
 import androidx.media3.common.audio.SonicAudioProcessor
 import androidx.media3.exoplayer.metadata.MetadataOutput
@@ -34,11 +37,10 @@ import androidx.media3.extractor.ts.AdtsExtractor
 import androidx.media3.extractor.wav.WavExtractor
 
 /**
- * Builds an audio-only player: one audio renderer, with [NormalizationAudioProcessor],
- * [ReverbAudioProcessor] and [ThreeDAudioProcessor] inserted after ExoPlayer's built-in
- * Sonic-based speed/pitch processor, so our custom effects apply on top of the existing (already
- * time-stretched) audio stream. Loudness is evened out first, so the effects see the same level
- * from every song.
+ * Builds an audio-only player: one audio renderer, with [NormalizationAudioProcessor], the DJ
+ * mix's [MixChannelAudioProcessor] and [TempoAudioProcessor], then [ReverbAudioProcessor] and
+ * [ThreeDAudioProcessor], ahead of ExoPlayer's own silence skipping and speed/pitch processor.
+ * Loudness is evened out first, so everything after it sees the same level from every song.
  *
  * Deliberately not DefaultRenderersFactory. That one also builds video, text, metadata, image and
  * camera-motion renderers - a whole video pipeline and every subtitle and caption decoder - which
@@ -50,6 +52,8 @@ class CustomRenderersFactory(
     val normalizationAudioProcessor: NormalizationAudioProcessor,
     val reverbAudioProcessor: ReverbAudioProcessor,
     val threeDAudioProcessor: ThreeDAudioProcessor,
+    val mixChannelAudioProcessor: MixChannelAudioProcessor,
+    val tempoAudioProcessor: TempoAudioProcessor,
 ) : RenderersFactory {
 
     override fun createRenderers(
@@ -59,14 +63,21 @@ class CustomRenderersFactory(
         textRendererOutput: TextOutput,
         metadataRendererOutput: MetadataOutput,
     ): Array<Renderer> {
+        // The mix's channel strip and tempo come straight after loudness levelling, so the effects
+        // after them treat both songs of a mix alike.
+        val standard = DefaultAudioSink.DefaultAudioProcessorChain(
+            arrayOf<AudioProcessor>(
+                normalizationAudioProcessor,
+                mixChannelAudioProcessor,
+                tempoAudioProcessor,
+                reverbAudioProcessor,
+                threeDAudioProcessor,
+            ),
+            musicSilenceSkipper(),
+            SonicAudioProcessor(),
+        )
         val sink = DefaultAudioSink.Builder(context)
-            .setAudioProcessorChain(
-                DefaultAudioSink.DefaultAudioProcessorChain(
-                    arrayOf<AudioProcessor>(normalizationAudioProcessor, reverbAudioProcessor, threeDAudioProcessor),
-                    musicSilenceSkipper(),
-                    SonicAudioProcessor(),
-                ),
-            )
+            .setAudioProcessorChain(MixingAudioProcessorChain(tempoAudioProcessor, standard))
             .build()
         return arrayOf(
             NormalizingAudioRenderer(context, eventHandler, audioRendererEventListener, sink, normalizationAudioProcessor),
@@ -83,22 +94,26 @@ class CustomRenderersFactory(
  * a raw .aac (ADTS) file couldn't be seeked at all - dragging the seek bar put it straight back at
  * the start - and the same went for AMR and for MP3s missing their header.
  */
-fun audioMediaSourceFactory(context: Context): MediaSource.Factory {
-    val extractors = ExtractorsFactory {
-        arrayOf<Extractor>(
-            Mp3Extractor(Mp3Extractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING),
-            Mp4Extractor(SubtitleParser.Factory.UNSUPPORTED),
-            FragmentedMp4Extractor(SubtitleParser.Factory.UNSUPPORTED),
-            FlacExtractor(),
-            OggExtractor(),
-            WavExtractor(),
-            AdtsExtractor(AdtsExtractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING),
-            AmrExtractor(AmrExtractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING),
-            MatroskaExtractor(SubtitleParser.Factory.UNSUPPORTED),
-            Ac3Extractor(),
-        )
-    }
-    return ProgressiveMediaSource.Factory(DefaultDataSource.Factory(context), extractors)
+fun audioMediaSourceFactory(context: Context): MediaSource.Factory =
+    ProgressiveMediaSource.Factory(DefaultDataSource.Factory(context), audioExtractorsFactory())
+
+/**
+ * The container formats audio comes in, for the player and for the DJ mix's analysis alike - so
+ * both read every file the same way, down to where its first sample falls.
+ */
+fun audioExtractorsFactory(): ExtractorsFactory = ExtractorsFactory {
+    arrayOf<Extractor>(
+        Mp3Extractor(Mp3Extractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING),
+        Mp4Extractor(SubtitleParser.Factory.UNSUPPORTED),
+        FragmentedMp4Extractor(SubtitleParser.Factory.UNSUPPORTED),
+        FlacExtractor(),
+        OggExtractor(),
+        WavExtractor(),
+        AdtsExtractor(AdtsExtractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING),
+        AmrExtractor(AmrExtractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING),
+        MatroskaExtractor(SubtitleParser.Factory.UNSUPPORTED),
+        Ac3Extractor(),
+    )
 }
 
 /**

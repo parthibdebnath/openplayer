@@ -49,12 +49,14 @@ class ThreeDAudioProcessor : BaseAudioProcessor() {
             return AudioFormat.NOT_SET
         }
         channelCount = inputAudioFormat.channelCount
-        val scale = inputAudioFormat.sampleRate / 44100.0
         val roomTuningsMs = intArrayOf(17, 29, 37) // short, distinct from the Reverb effect's longer taps
         lowpassState = FloatArray(channelCount)
         roomCombs = Array(channelCount) { channel ->
             Array(roomTuningsMs.size) { i ->
-                val delaySamples = (roomTuningsMs[i] * inputAudioFormat.sampleRate / 1000.0 * scale).toInt()
+                // Milliseconds times samples per millisecond is already in this rate's samples.
+                // It used to be scaled by rate/44100 on top, so the room grew at 48 kHz and up -
+                // nearly double the size at 96 kHz.
+                val delaySamples = (roomTuningsMs[i] * inputAudioFormat.sampleRate / 1000.0).toInt()
                 CombFilter(delaySamples)
             }
         }

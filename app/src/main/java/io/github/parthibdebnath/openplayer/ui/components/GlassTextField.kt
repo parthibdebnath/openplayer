@@ -18,6 +18,7 @@ import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -113,8 +114,25 @@ fun GlassTextField(
             state.setTextAndPlaceCursorAtEnd(value)
         }
     }
-    if (autoFocus) {
-        LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    val entryFocus = LocalTextEntryFocus.current
+    val layer = LocalTextEntryLayer.current
+    val field = remember(entryFocus, layer) { TextEntryFocus.Field(layer, focusRequester) }
+    DisposableEffect(field) {
+        entryFocus?.add(field)
+        onDispose { entryFocus?.remove(field) }
+    }
+    LaunchedEffect(field) {
+        // A floating panel's first field takes focus from whatever field it covers; see
+        // TextEntryFocus.
+        val below = if (entryFocus != null && layer != null && !layer.claimed) {
+            layer.claimed = true
+            entryFocus.focusedBelow(layer)?.also { layer.takenFrom = it }
+        } else {
+            null
+        }
+        // Even with the keyboard put away for the moment - a context menu on the way here hides
+        // it - typing was going on underneath, and it carries on in the panel.
+        if (autoFocus || below != null) focusRequester.requestFocus()
     }
 
     val transformation = remember(maxLength, digitsOnly) { EntryRules(maxLength, digitsOnly) }
@@ -156,6 +174,7 @@ fun GlassTextField(
                 .focusRequester(focusRequester)
                 .onFocusChanged {
                     focused = it.isFocused
+                    field.focused = it.isFocused
                     onFocusChanged(it.isFocused)
                 },
             readOnly = readOnly,

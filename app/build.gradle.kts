@@ -26,8 +26,8 @@ android {
         applicationId = "com.hyperperformant.openplayer"
         minSdk = 26
         targetSdk = 36
-        versionCode = 11
-        versionName = "0.1.0-beta.11"
+        versionCode = 12
+        versionName = "0.1.0-beta.12"
     }
 
     signingConfigs {
@@ -61,6 +61,12 @@ android {
 
     buildFeatures {
         compose = true
+    }
+
+    // JVM tests touch Media3 metadata classes, which implement Parcelable; android.jar's stubs
+    // throw on any call unless told to return defaults.
+    testOptions {
+        unitTests.isReturnDefaultValues = true
     }
 
     // The app is English-only, but every library ships its strings in eighty-odd languages, all of
@@ -119,4 +125,6 @@ dependencies {
 
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
+
+    testImplementation(libs.junit)
 }

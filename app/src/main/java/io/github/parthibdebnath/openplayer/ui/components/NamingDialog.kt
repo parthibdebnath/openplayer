@@ -67,43 +67,45 @@ fun NamingDialog(
         onConfirm(text)
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            // Kept well below the text field's own opacity so the panel reads as a dark backdrop
-            // with a lighter field sitting on it, as in the mockups - nested glass surfaces at
-            // equal strength turned the whole thing into one flat gray slab.
-            .glassSurface(shape = RoundedCornerShape(10.dp), opacity = 0.45f)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-    ) {
-        Text(text = title, style = interTextStyle(20, bold = true), color = LocalAppColors.current.onBackground)
-        Spacer(Modifier.height(12.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            GlassTextField(
-                value = text,
-                onValueChange = {
-                    text = it
-                    onTextChange(it)
-                },
-                modifier = Modifier.weight(1f),
-                onImeAction = { confirm() },
-                // Long names wrap rather than scroll out of sight, so every part of them can be
-                // seen and the caret placed anywhere.
-                maxLines = 4,
-                autoFocus = true,
-            )
-            Spacer(Modifier.width(14.dp))
-            Icon(
-                imageVector = Icons.Filled.Check,
-                contentDescription = "Confirm",
-                tint = LocalAppColors.current.onBackground,
-                modifier = Modifier
-                    .size(28.dp)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                    ) { confirm() },
-            )
+    TextEntryLayer {
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                // Kept well below the text field's own opacity so the panel reads as a dark backdrop
+                // with a lighter field sitting on it, as in the mockups - nested glass surfaces at
+                // equal strength turned the whole thing into one flat gray slab.
+                .glassSurface(shape = RoundedCornerShape(10.dp), opacity = 0.45f)
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+        ) {
+            Text(text = title, style = interTextStyle(20, bold = true), color = LocalAppColors.current.onBackground)
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                GlassTextField(
+                    value = text,
+                    onValueChange = {
+                        text = it
+                        onTextChange(it)
+                    },
+                    modifier = Modifier.weight(1f),
+                    onImeAction = { confirm() },
+                    // Long names wrap rather than scroll out of sight, so every part of them can be
+                    // seen and the caret placed anywhere.
+                    maxLines = 4,
+                    autoFocus = true,
+                )
+                Spacer(Modifier.width(14.dp))
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    contentDescription = "Confirm",
+                    tint = LocalAppColors.current.onBackground,
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ) { confirm() },
+                )
+            }
         }
     }
 }

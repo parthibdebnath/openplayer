@@ -43,6 +43,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.parthibdebnath.openplayer.audio.listSourceKey
 import io.github.parthibdebnath.openplayer.data.model.FAVOURITES_LABEL
 import io.github.parthibdebnath.openplayer.data.model.FAVOURITES_PLAYLIST_ID
 import io.github.parthibdebnath.openplayer.data.model.tagIdOf
@@ -128,6 +129,9 @@ fun PlaylistSongsScreen(
             songs
         }
     }
+    // Only the whole list keeps its shuffle: shuffling a search's matches set it aside with just
+    // those songs, and picking it up later would have lost the rest of the list's progress.
+    val sourceKey = if (visibleSongs.size == songs.size) listSourceKey(playlistId) else null
 
     // One scroll position per playlist. A single shared state carried the last playlist's scroll
     // into the next one opened, which then started part-way down for no reason.
@@ -268,7 +272,7 @@ fun PlaylistSongsScreen(
                                         titleScrollRequest++
                                     },
                                     // Plays the list as shown - filtered and sorted - from here.
-                                    onClick = { viewModel.playSpecificSong(visibleSongs, playlistName, song) },
+                                    onClick = { viewModel.playSpecificSong(visibleSongs, playlistName, song, sourceKey) },
                                 ),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -380,7 +384,7 @@ fun PlaylistSongsScreen(
             GlassIconButton(
                 icon = Icons.Filled.PlayArrow,
                 contentDescription = "Play in order",
-                onClick = { viewModel.playPlaylistInOrder(visibleSongs, playlistName) },
+                onClick = { viewModel.playPlaylistInOrder(visibleSongs, playlistName, sourceKey) },
                 circleSize = 40.dp,
                 iconSize = 20.dp,
             )
@@ -388,7 +392,7 @@ fun PlaylistSongsScreen(
             GlassIconButton(
                 icon = Icons.Filled.Shuffle,
                 contentDescription = "Shuffle play",
-                onClick = { viewModel.playPlaylistShuffled(visibleSongs, playlistName) },
+                onClick = { viewModel.playPlaylistShuffled(visibleSongs, playlistName, sourceKey) },
                 circleSize = 50.dp,
                 iconSize = 25.dp,
             )

@@ -42,6 +42,9 @@ interface SongDao {
     @Query("SELECT * FROM songs WHERE isFavourite = 1")
     fun observeFavourites(): Flow<List<SongEntity>>
 
+    @Query("SELECT * FROM songs WHERE isFavourite = 1")
+    suspend fun getFavourites(): List<SongEntity>
+
     /** Only the column itself, so a rescan or metadata fill running at the same time isn't undone. */
     @Query("UPDATE songs SET isFavourite = :favourite WHERE id = :id")
     suspend fun updateFavourite(id: Long, favourite: Boolean)

@@ -8,14 +8,15 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [PlaylistEntity::class, SongEntity::class, TagEntity::class, SongTagEntity::class],
-    version = 4,
+    entities = [PlaylistEntity::class, SongEntity::class, TagEntity::class, SongTagEntity::class, TrackAnalysisEntity::class],
+    version = 5,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun playlistDao(): PlaylistDao
     abstract fun songDao(): SongDao
     abstract fun tagDao(): TagDao
+    abstract fun trackAnalysisDao(): TrackAnalysisDao
 
     companion object {
         @Volatile private var instance: AppDatabase? = null
@@ -27,7 +28,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "openplayer.db",
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build()
                     .also { instance = it }
             }
@@ -65,5 +66,24 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
                 "PRIMARY KEY(`songId`, `tagId`), FOREIGN KEY(`tagId`) REFERENCES `tags`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         )
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_song_tags_tagId` ON `song_tags` (`tagId`)")
+    }
+}
+
+/**
+ * Version 5: the DJ mix's analysis of each song (tempo, beats, key, intro and outro). A new table
+ * that starts empty and fills as songs are played; nothing else changes. The SQL is Room's own for
+ * the entity (app/schemas/5.json).
+ */
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `track_analysis` (`songId` INTEGER NOT NULL, `sizeBytes` INTEGER NOT NULL, " +
+                "`lastModified` INTEGER NOT NULL, `version` INTEGER NOT NULL, " +
+                "`durationMs` REAL NOT NULL, `bpm` REAL NOT NULL, `beatConfidence` REAL NOT NULL, " +
+                "`tempoStable` INTEGER NOT NULL, `introDownbeatMs` REAL NOT NULL, `outroDownbeatMs` REAL NOT NULL, " +
+                "`downbeatConfidence` REAL NOT NULL, `musicalKey` INTEGER NOT NULL, `keyConfidence` REAL NOT NULL, " +
+                "`audioStartMs` REAL NOT NULL, `audioEndMs` REAL NOT NULL, `introEndMs` REAL NOT NULL, " +
+                "`outroStartMs` REAL NOT NULL, `loudnessDb` REAL NOT NULL, PRIMARY KEY(`songId`))",
+        )
     }
 }

@@ -58,6 +58,20 @@
             </intent-filter>
         </service>
 
+        <!--
+            Headset and media buttons while the playback service isn't running - after a pause
+            with "Notification media controls" off, or once the system has stopped it, or with
+            the app not started at all. Media3 starts the service, which reads the saved queue
+            back and plays.
+        -->
+        <receiver
+            android:name="androidx.media3.session.MediaButtonReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
 </manifest>

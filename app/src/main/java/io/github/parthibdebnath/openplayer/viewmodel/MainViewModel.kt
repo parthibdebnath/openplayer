@@ -1,15 +1,12 @@
 package io.github.parthibdebnath.openplayer.viewmodel
 
-import android.Manifest
 import android.app.Application
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.core.app.NotificationManagerCompat
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.parthibdebnath.openplayer.audio.OutputDevice
@@ -17,18 +14,23 @@ import io.github.parthibdebnath.openplayer.audio.PlayOrder
 import io.github.parthibdebnath.openplayer.audio.PlaybackEngine
 import io.github.parthibdebnath.openplayer.audio.PlaybackUiState
 import io.github.parthibdebnath.openplayer.audio.SleepTimerState
+import io.github.parthibdebnath.openplayer.audio.listIdOf
+import io.github.parthibdebnath.openplayer.audio.listSourceKey
+import io.github.parthibdebnath.openplayer.audio.multiPlaylistIdsOf
+import io.github.parthibdebnath.openplayer.audio.multiSourceKey
 import io.github.parthibdebnath.openplayer.data.model.Playlist
 import io.github.parthibdebnath.openplayer.data.model.Song
 import io.github.parthibdebnath.openplayer.data.model.Tag
 import io.github.parthibdebnath.openplayer.data.model.tagIdOf
+import io.github.parthibdebnath.openplayer.data.model.tagPlaylistId
 import io.github.parthibdebnath.openplayer.data.repository.EXTERNAL_LABEL
 import io.github.parthibdebnath.openplayer.data.repository.ExternalSongs
 import io.github.parthibdebnath.openplayer.data.repository.PlaylistRepository
 import io.github.parthibdebnath.openplayer.data.repository.REMOVED_SONGS_FOLDER_NAME
 import io.github.parthibdebnath.openplayer.data.model.SongSort
 import io.github.parthibdebnath.openplayer.data.repository.isExternal
-import io.github.parthibdebnath.openplayer.playback.MediaButtonSession
-import io.github.parthibdebnath.openplayer.playback.PlaybackService
+import io.github.parthibdebnath.openplayer.playback.PlaybackServiceStarter
+import io.github.parthibdebnath.openplayer.util.runSuspendCatching
 import io.github.parthibdebnath.openplayer.data.settings.EffectsRepository
 import io.github.parthibdebnath.openplayer.data.settings.EffectsState
 import io.github.parthibdebnath.openplayer.data.settings.OtherAppSound
@@ -55,7 +57,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -157,14 +162,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Plays every favourite, in the order the Favourites list shows them, or shuffled. */
     fun playFavourites(shuffled: Boolean) {
         val songs = settingsSnapshot.value.songSort.sort(favourites.value)
-        if (shuffled) playPlaylistShuffled(songs, FAVOURITES_LABEL) else playPlaylistInOrder(songs, FAVOURITES_LABEL)
+        val key = listSourceKey(FAVOURITES_PLAYLIST_ID)
+        if (shuffled) playPlaylistShuffled(songs, FAVOURITES_LABEL, key) else playPlaylistInOrder(songs, FAVOURITES_LABEL, key)
     }
 
     /** Hearts or un-hearts [song]. Files opened from other apps aren't in the library, so can't be. */
     fun toggleFavourite(song: Song) = launchSafely {
         if (song.isExternal) return@launchSafely
-        playlistRepository.setFavourite(song.id, song.id !in favouriteIds.value)
+        val adding = song.id !in favouriteIds.value
+        playlistRepository.setFavourite(song.id, adding)
         backupNudge.value++
+        if (adding) addNewSongsToShuffle()
     }
 
     // --- Tags ----------------------------------------------------------------------------------
@@ -201,6 +209,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (song.isExternal) return@launchSafely
         playlistRepository.addTag(song.id, name)
         backupNudge.value++
+        addNewSongsToShuffle()
     }
 
     fun removeTag(song: Song, tagId: Long) = launchSafely {
@@ -221,7 +230,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Plays every song with a tag, in the order its list shows them, or shuffled. */
     fun playTag(tag: Tag, shuffled: Boolean) = launchSafely {
         val songs = settingsSnapshot.value.songSort.sort(playlistRepository.getSongsWithTag(tag.id))
-        if (shuffled) playPlaylistShuffled(songs, tag.name) else playPlaylistInOrder(songs, tag.name)
+        val key = listSourceKey(tagPlaylistId(tag.id))
+        if (shuffled) playPlaylistShuffled(songs, tag.name, key) else playPlaylistInOrder(songs, tag.name, key)
     }
 
     /** True while a folder is being indexed; the song list says so rather than looking empty. */
@@ -239,8 +249,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+    /**
+     * Effects changed and already heard, but not yet saved - see [updateEffects]. They stand in
+     * for the saved ones until those catch up.
+     */
+    private val unsavedEffects = MutableStateFlow<EffectsState?>(null)
+    private var effectsSave: Job? = null
+
     // Loaded eagerly, so the SFX screen opens on the saved values rather than flashing defaults.
-    val effectsState: StateFlow<EffectsState> = effectsRepository.effectsState
+    val effectsState: StateFlow<EffectsState> = combine(effectsRepository.effectsState, unsavedEffects) { saved, unsaved -> unsaved ?: saved }
         .stateIn(viewModelScope, SharingStarted.Eagerly, EffectsState())
 
     val sleepTimerState: StateFlow<SleepTimerState> = playbackEngine.sleepTimerManager.state
@@ -327,8 +344,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** A backup from an earlier install, found in a folder just added, waiting for a yes or no. */
     val restoreOffer: StateFlow<RestoreOffer?> = _restoreOffer.asStateFlow()
 
-    /** The last backup written, minus its timestamp, so an unchanged library isn't written again. */
-    private var lastBackupWritten: String? = null
+    /**
+     * What each folder's backup holds, minus its timestamp - as written, or as found there the
+     * first time it was looked at this run - so only a folder whose backup would change is
+     * written. Remembering one "last written" for all of them rewrote every folder on every
+     * launch, and every folder again whenever any one write had failed.
+     */
+    private val folderBackupContent = HashMap<String, String>()
+    private val folderBackupLock = Mutex()
 
     init {
         // However the restore goes - a slow device, or a failure that ends the launch below - the
@@ -338,7 +361,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _playbackRestored.value = true
         }
         viewModelScope.launch(mutationExceptionHandler) {
-            runCatching { settingsRepository.prepare() }
+            runSuspendCatching { settingsRepository.prepare() }
             // Restored before the rescan rather than after it: the saved songs are already in the
             // database, and a large library can take a while to rescan. The engine itself makes
             // sure this only happens once per process, so recreating the UI while music plays in
@@ -356,6 +379,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // Songs opened from another app have no row to find, and are left alone.
             val existing = playlistRepository.getAllSongIds()
             playbackEngine.dropSongs { !it.isExternal && it.id !in existing }
+            addNewSongsToShuffle()
         }
         // Polled rather than scheduled for midnight: a minute's granularity is plenty for a
         // once-a-day colour, and it picks up correctly after the app has been closed over midnight.
@@ -365,7 +389,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             while (true) {
                 appVisible.first { it }
                 if (settingsSnapshot.value.dailyRandomBackground) {
-                    runCatching { settingsRepository.applyDailyRandomColorIfDue(todayStamp()) }
+                    runSuspendCatching { settingsRepository.applyDailyRandomColorIfDue(todayStamp()) }
                 }
                 delay(DAILY_COLOR_CHECK_INTERVAL_MS)
             }
@@ -385,6 +409,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             settingsRepository.crossfadeMs.collect { playbackEngine.crossfadeMs = it }
         }
         viewModelScope.launch {
+            settingsRepository.djMix.collect { playbackEngine.djMix = it }
+        }
+        viewModelScope.launch {
             settingsRepository.otherAppSound.collect { playbackEngine.otherAppSound = it }
         }
         viewModelScope.launch {
@@ -396,35 +423,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             settingsRepository.rememberLongTracks.collect { playbackEngine.rememberLongTracks = it }
         }
+        viewModelScope.launch {
+            settingsRepository.preserveShuffleProgress.collect { playbackEngine.preserveShuffleProgress = it }
+        }
+        viewModelScope.launch {
+            settingsSnapshot.map { it.shuffleSeedLocked }.distinctUntilChanged().collect { playbackEngine.shuffleSeedLocked = it }
+        }
+        // Shuffle turned on from a car or a watch picks its seed in the engine; saved from here.
+        // Application-scoped, like the resume writer below, so it isn't lost with the screen.
+        playbackEngine.onShuffleSeedGenerated = { seed ->
+            resumeWriter.launch { runSuspendCatching { settingsRepository.setShuffleSeed(seed) } }
+        }
         // The engine has no database of its own; positions in long tracks are written from here.
         // Application-scoped like the engine, not the ViewModel's scope: the engine outlives the
         // screen while music plays in the background.
         playbackEngine.onResumePositionChanged = { id, position ->
             resumeWriter.launch { playlistRepository.saveResumePosition(id, position) }
         }
-        viewModelScope.launch {
-            // distinctUntilChanged matters: uiState re-emits on every position tick, and without
-            // it the service was asked to start/stop on each one.
-            // Keyed off "a song is loaded", not "audio is playing": tying it to isPlaying tore the
-            // media session down the moment you hit pause, taking the notification with it and
-            // leaving nothing to resume from.
-            //
-            // The service's real state is part of the key, not a flag remembering that it was
-            // started: the system stops it by itself after a long pause in the background, and
-            // a remembered "running" then kept it from ever being started again, so the
-            // notification never came back for the rest of the session.
-            combine(
-                settingsRepository.notificationMediaControl,
-                playbackEngine.uiState,
-                PlaybackService.running,
-                appVisible,
-            ) { enabled, state, running, visible -> ServiceInputs(enabled, state.currentSong != null, running, visible) }
-                .distinctUntilChanged()
-                .collect { updatePlaybackServiceState(it) }
-        }
-        // The backups in the playlist folders follow the library and settings, a few seconds
-        // after the last change rather than on every one: a slider dragged through the effects
-        // would otherwise rewrite every folder's backup dozens of times.
+        // The backups in the playlist folders follow the library and settings, half a minute
+        // after the last change rather than on every one - a settings session or a run of
+        // renames is one write, not dozens - and straight away when the app is left (see
+        // onAppBackgrounded), so nothing waits on a process that may not come back.
         viewModelScope.launch(mutationExceptionHandler) {
             combine(playlists, settingsSnapshot, effectsRepository.effectsState, backupNudge, _restoreOffer) { list, settings, _, _, offer ->
                 Triple(list.isNotEmpty(), settings.backupToFolders, offer == null)
@@ -436,9 +455,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (hasPlaylists && enabled && noOfferPending) writeFolderBackups()
                 }
         }
+        // Saved effects that differ from what's being heard - a drag's last value saved, an
+        // import landing - stop standing in for them once the saved ones agree.
+        viewModelScope.launch {
+            effectsRepository.effectsState.collect { saved -> if (saved == unsavedEffects.value) unsavedEffects.value = null }
+        }
     }
-
-    private data class ServiceInputs(val enabled: Boolean, val hasSong: Boolean, val running: Boolean, val visible: Boolean)
 
     /** The installed version, for the About section. */
     val appVersion: String = runCatching {
@@ -451,29 +473,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private companion object {
         const val DAILY_COLOR_CHECK_INTERVAL_MS = 60_000L
-        const val BACKUP_DELAY_MS = 3_000L
+        const val BACKUP_DELAY_MS = 30_000L
+
+        /** Quiet time after an effect change before it's saved; see [updateEffects]. */
+        const val EFFECTS_SAVE_DELAY_MS = 500L
         const val KEY_INSTALL_ID = "install_id"
         const val KEY_SETTLED = "settled_backups"
     }
 
     /**
-     * Whether we're allowed to post the playback notification. Media3 drives the media session
-     * service off its notification, and on Android 13+ a denied POST_NOTIFICATIONS permission
-     * means that notification can never be shown - which takes the session down with it and stops
-     * playback. Playback itself has no need of the service, so when the permission isn't there we
-     * simply don't start it and the music plays without system media controls.
+     * Whether the media notification can be seen. Android 13 and later show a media session's
+     * notification whatever the notification permission says, so only older versions, with the
+     * app's notifications switched off, hide it. The service runs either way - it doesn't need the
+     * notification to be seen, only to exist.
      */
     private fun canPostNotifications(): Boolean {
-        val app = getApplication<Application>()
-        // Both halves matter: the runtime permission can be granted while the user has still
-        // switched the app's notifications off in system settings, and either one alone is enough
-        // to leave the media controls invisible.
-        if (!NotificationManagerCompat.from(app).areNotificationsEnabled()) return false
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
-        return ContextCompat.checkSelfPermission(
-            app,
-            Manifest.permission.POST_NOTIFICATIONS,
-        ) == PackageManager.PERMISSION_GRANTED
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) return true
+        return NotificationManagerCompat.from(getApplication<Application>()).areNotificationsEnabled()
     }
 
     private val _notificationsBlocked = MutableStateFlow(false)
@@ -511,6 +527,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Re-checks notification and battery access, either of which can change while the app is away. */
     fun onAppForegrounded() {
         appVisible.value = true
+        PlaybackServiceStarter.setAppVisible(true)
         playbackEngine.uiVisible = true
         _batteryOptimized.value = isBatteryOptimized()
         // Access granted from system settings while we were away is picked up by the service
@@ -526,40 +543,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         runCatching { app.startActivity(intent) }
             .onFailure { Log.w("MainViewModel", "Could not open notification settings", it) }
-    }
-
-    /**
-     * Starts/stops the MediaSessionService wrapping our player. Disabling "Notification Media
-     * Control" removes the system notification entirely (per spec) - core playback in-app keeps
-     * working either way since it talks to [PlaybackEngine] directly, not through this service.
-     *
-     * Uses `startService`, not `startForegroundService`: this only ever runs while the app is in
-     * the foreground and already playing, so the start is permitted, Media3 promotes the service
-     * to the foreground itself once it posts its notification, and no five-second
-     * foreground-start deadline (whose expiry killed playback) applies.
-     */
-    private fun updatePlaybackServiceState(inputs: ServiceInputs) {
-        val app = getApplication<Application>()
-        val canPost = canPostNotifications()
-        val shouldRun = inputs.enabled && inputs.hasSong && canPost
-        if (inputs.enabled && inputs.hasSong && !canPost) {
-            Log.w("MainViewModel", "Media controls suppressed: notifications are blocked for this app")
-        }
-        // Only started while the app is on screen: a background start isn't allowed, and would
-        // throw. If the system stopped the service while we were away, coming back restarts it.
-        if (shouldRun && !inputs.running && inputs.visible) {
-            runCatching {
-                app.startService(Intent(app, PlaybackService::class.java))
-                Log.i("MainViewModel", "Playback service started for media controls")
-            }.onFailure { Log.w("MainViewModel", "Could not start playback service", it) }
-        } else if (!shouldRun && inputs.running) {
-            runCatching { app.stopService(Intent(app, PlaybackService::class.java)) }
-        }
-        // Headset and media buttons work whether or not there's a notification: while the
-        // service isn't running (or about to be started just above), a session of the app's own
-        // takes them. See MediaButtonSession.
-        val serviceTakesButtons = inputs.running || (shouldRun && inputs.visible)
-        if (inputs.hasSong && !serviceTakesButtons) MediaButtonSession.start(app) else MediaButtonSession.stop()
     }
 
     private fun launchSafely(block: suspend () -> Unit) =
@@ -584,6 +567,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         playlistRepository.rescanPlaylist(playlistId)
         val existing = playlistRepository.getAllSongIds()
         playbackEngine.dropSongs { !it.isExternal && it.playlistId == playlistId && it.id !in existing }
+        addNewSongsToShuffle()
     }
 
     fun renamePlaylist(playlistId: Long, newName: String) = launchSafely {
@@ -614,6 +598,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             added == 0 -> toast("Couldn't add ${if (sourceUris.size == 1) "that file" else "those files"} to this folder")
             else -> toast("$added of ${sourceUris.size} songs added")
         }
+        if (added > 0) addNewSongsToShuffle()
     }
 
     fun removeSong(song: Song) = launchSafely {
@@ -638,6 +623,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         playlistRepository.setIncludeSubfolders(playlistId, include)
         val existing = playlistRepository.getAllSongIds()
         playbackEngine.dropSongs { !it.isExternal && it.playlistId == playlistId && it.id !in existing }
+        addNewSongsToShuffle()
     }
 
     // --- Search across playlists -----------------------------------------------------------
@@ -667,7 +653,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val name = playlists.value.firstOrNull { it.id == song.playlistId }?.displayName.orEmpty()
         val songs = orderedSongs(listOf(song.playlistId))
         if (songs.isEmpty()) return@launchSafely
-        playbackEngine.playSpecificSong(songs, name, songs.firstOrNull { it.id == song.id } ?: song)
+        playbackEngine.playSpecificSong(songs, name, songs.firstOrNull { it.id == song.id } ?: song, listSourceKey(song.playlistId))
     }
 
     // --- Export and import -------------------------------------------------------------------
@@ -757,23 +743,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         savedAt = System.currentTimeMillis(),
     )
 
-    /** Brings the backup in every playlist folder up to date, if anything has changed. */
-    private suspend fun writeFolderBackups() {
+    /** Brings the backup in each playlist folder up to date, where it has changed. */
+    private suspend fun writeFolderBackups() = folderBackupLock.withLock {
         val backup = currentBackup()
         val comparable = exportJson.encodeToString(LibraryExport.serializer(), backup.copy(savedAt = 0L))
-        if (comparable == lastBackupWritten) return
-        val text = exportJson.encodeToString(LibraryExport.serializer(), backup)
-        var written = 0
+        val text by lazy { exportJson.encodeToString(LibraryExport.serializer(), backup) }
         for (playlist in backup.playlists) {
             val folder = Uri.parse(playlist.folderUri)
             if (!playlistRepository.canRead(folder)) continue
+            val there = folderBackupContent[playlist.folderUri]
+                ?: backupContentIn(folder)?.also { folderBackupContent[playlist.folderUri] = it }
+            if (there == comparable) continue
             if (playlistRepository.writeFolderBackup(folder, text)) {
-                written++
+                folderBackupContent[playlist.folderUri] = comparable
             } else {
                 Log.w("MainViewModel", "Couldn't write the backup in a playlist folder")
             }
         }
-        if (written > 0) lastBackupWritten = comparable
+    }
+
+    /** The backup already in [folder], minus its timestamp, to compare with what would be written. */
+    private suspend fun backupContentIn(folder: Uri): String? {
+        val text = playlistRepository.readFolderBackup(folder) ?: return null
+        val existing = runCatching { exportJson.decodeFromString(LibraryExport.serializer(), text) }.getOrNull() ?: return null
+        return exportJson.encodeToString(LibraryExport.serializer(), existing.copy(savedAt = 0L))
+    }
+
+    /** Writes any folder backup that's out of date now, rather than when the debounce runs out. */
+    private fun flushFolderBackups() {
+        if (!settingsSnapshot.value.backupToFolders || playlists.value.isEmpty() || _restoreOffer.value != null) return
+        // App-scoped: leaving the app is exactly when this ViewModel may be about to go.
+        resumeWriter.launch { runSuspendCatching { writeFolderBackups() }.onFailure { Log.w("MainViewModel", "Folder backup failed", it) } }
     }
 
     /**
@@ -892,39 +892,69 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- Playback --------------------------------------------------------------------------
 
-    fun playPlaylistInOrder(songs: List<Song>, label: String) {
-        playbackEngine.playSongs(songs, label, PlayOrder.SEQUENTIAL)
+    /**
+     * The sourceKey parameters below say which list is being played (see [listSourceKey]), so it
+     * keeps its own shuffle; null for songs that aren't a whole list, like a filtered one.
+     */
+    fun playPlaylistInOrder(songs: List<Song>, label: String, sourceKey: String? = null) {
+        playbackEngine.playSongs(songs, label, PlayOrder.SEQUENTIAL, sourceKey = sourceKey)
     }
 
-    /** Each press produces a genuinely new shuffle - unless the seed is locked, which is the point of locking it. */
-    fun playPlaylistShuffled(songs: List<Song>, label: String) = launchSafely {
-        if (!settingsSnapshot.value.shuffleSeedLocked) {
-            playbackEngine.setShuffleSeed(settingsRepository.regenerateShuffleSeed())
+    /**
+     * A new shuffle gets a new seed, so it's a genuinely new order - unless the seed is locked,
+     * which is the point of locking it. Whether it's a new shuffle or the list's own picked up
+     * again is up to the engine; see [PlaybackEngine.shufflePlay].
+     */
+    fun playPlaylistShuffled(songs: List<Song>, label: String, sourceKey: String? = null) = launchSafely {
+        playbackEngine.shufflePlay(songs, label, sourceKey) {
+            if (settingsSnapshot.value.shuffleSeedLocked) null else settingsRepository.regenerateShuffleSeed()
         }
-        playbackEngine.playSongs(songs, label, PlayOrder.SHUFFLED)
     }
 
-    fun playSpecificSong(songs: List<Song>, label: String, song: Song) {
-        playbackEngine.playSpecificSong(songs, label, song)
+    fun playSpecificSong(songs: List<Song>, label: String, song: Song, sourceKey: String? = null) = launchSafely {
+        playbackEngine.playSpecificSong(songs, label, song, sourceKey)
     }
 
     /** Plays several playlists as one combined queue, labeled "Multi-Playlist" (per spec). */
     fun playMultiPlaylist(playlistIds: List<Long>, shuffled: Boolean) = launchSafely {
-        play(orderedSongs(playlistIds), "Multi-Playlist", shuffled)
+        play(orderedSongs(playlistIds), "Multi-Playlist", shuffled, multiSourceKey(playlistIds))
     }
 
     /** Plays a whole playlist straight from the playlist list, without opening it. */
     fun playPlaylist(playlistId: Long, shuffled: Boolean) = launchSafely {
         val name = playlists.value.firstOrNull { it.id == playlistId }?.displayName.orEmpty()
-        play(orderedSongs(listOf(playlistId)), name, shuffled)
+        play(orderedSongs(listOf(playlistId)), name, shuffled, listSourceKey(playlistId))
     }
 
-    private fun play(songs: List<Song>, label: String, shuffled: Boolean) {
+    private fun play(songs: List<Song>, label: String, shuffled: Boolean, sourceKey: String) {
         if (songs.isEmpty()) {
             toast("No songs to play yet")
             return
         }
-        if (shuffled) playPlaylistShuffled(songs, label) else playPlaylistInOrder(songs, label)
+        if (shuffled) playPlaylistShuffled(songs, label, sourceKey) else playPlaylistInOrder(songs, label, sourceKey)
+    }
+
+    /**
+     * Deals songs that have just joined the list being shuffled - a rescan, files added, a new
+     * favourite or tag - into the songs it still has to play, rather than leaving them out until
+     * it's next started.
+     */
+    private suspend fun addNewSongsToShuffle() {
+        val key = playbackEngine.shuffledSourceKey() ?: return
+        val songs = songsOf(key) ?: return
+        playbackEngine.addNewSongs(key, songs)
+    }
+
+    /** The songs [sourceKey] stands for, as the library has them now, in no particular order. */
+    private suspend fun songsOf(sourceKey: String): List<Song>? {
+        multiPlaylistIdsOf(sourceKey)?.let { return playlistRepository.getSongsForPlaylists(it) }
+        val listId = listIdOf(sourceKey) ?: return null
+        val tagId = tagIdOf(listId)
+        return when {
+            listId == FAVOURITES_PLAYLIST_ID -> playlistRepository.getFavourites()
+            tagId != null -> playlistRepository.getSongsWithTag(tagId)
+            else -> playlistRepository.getSongsForPlaylists(listOf(listId))
+        }
     }
 
     /**
@@ -950,7 +980,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun replaceUpcomingSlot(index: Int) = playbackEngine.replaceUpcomingSlot(index)
     fun reorderUpcoming(from: Int, to: Int) = playbackEngine.reorderUpcoming(from, to)
 
-    fun setShuffleEnabled(enabled: Boolean) = playbackEngine.setShuffleEnabled(enabled)
+    /** See [PlaybackEngine.switchShuffle]: turned on, it's a new order unless the seed is locked. */
+    fun setShuffleEnabled(enabled: Boolean) = playbackEngine.switchShuffle(enabled)
 
     fun toggleShuffle() = setShuffleEnabled(playbackUiState.value.shuffleOn.not())
 
@@ -971,6 +1002,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         settingsRepository.setShuffleSeedLocked(locked)
     }
 
+    fun setPreserveShuffleProgress(value: Boolean) = launchSafely { settingsRepository.setPreserveShuffleProgress(value) }
+
     // --- Settings toggles ----------------------------------------------------------------
 
     fun setNotificationMediaControl(value: Boolean) = launchSafely { settingsRepository.setNotificationMediaControl(value) }
@@ -981,6 +1014,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setGlassTheming(value: Boolean) = launchSafely { settingsRepository.setGlassTheming(value) }
     fun setTwentyFourHourClock(value: Boolean) = launchSafely { settingsRepository.setTwentyFourHourClock(value) }
     fun setCrossfadeMs(value: Int) = launchSafely { settingsRepository.setCrossfadeMs(value) }
+    fun setDjMix(value: Boolean) = launchSafely { settingsRepository.setDjMix(value) }
+
+    /** The crossfade heard while its slider is dragged, saved with [setCrossfadeMs] on release. */
+    fun previewCrossfadeMs(value: Int) {
+        playbackEngine.crossfadeMs = value
+    }
     fun setBackgroundPlayback(value: Boolean) = launchSafely { settingsRepository.setBackgroundPlayback(value) }
     fun setBackgroundColorHex(value: String) = launchSafely { settingsRepository.setBackgroundColorHex(value) }
     fun setHideIconBackgrounds(value: Boolean) = launchSafely { settingsRepository.setHideIconBackgrounds(value) }
@@ -1003,9 +1042,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Called when the app leaves the foreground; stops the music if background playback is off. */
     fun onAppBackgrounded() {
         appVisible.value = false
+        PlaybackServiceStarter.setAppVisible(false)
         playbackEngine.uiVisible = false
         if (!settingsSnapshot.value.backgroundPlayback) playbackEngine.pause()
         playbackEngine.persistNow()
+        flushUnsavedEffects()
+        flushFolderBackups()
     }
 
     // --- Effects ---------------------------------------------------------------------------
@@ -1027,15 +1069,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         it.copy(reverb = ReverbEffectState.fromPreset(preset, enabled = it.reverb.enabled))
     }
 
-    private fun updateEffects(transform: (EffectsState) -> EffectsState) = launchSafely {
-        effectsRepository.update { old ->
-            val new = transform(old)
-            // Switching an effect on with "All effects" off did nothing audible, with no hint as
-            // to why. Turning one on now switches the master on too.
-            val turnedOn = (!old.speed.enabled && new.speed.enabled) || (!old.pitch.enabled && new.pitch.enabled) ||
-                (!old.reverb.enabled && new.reverb.enabled) || (!old.threeD.enabled && new.threeD.enabled)
-            if (turnedOn && !new.globalEnabled) new.copy(globalEnabled = true) else new
+    /**
+     * Applies an effect change to the sound at once, and saves it once changes stop for
+     * [EFFECTS_SAVE_DELAY_MS]. A slider used to write the whole effects file on every step of a
+     * drag - dozens of writes a second - and set off a folder backup with each.
+     */
+    private fun updateEffects(transform: (EffectsState) -> EffectsState) {
+        // The unsaved copy first: effectsState catches up a moment later, so two changes in quick
+        // succession built on it would lose the first.
+        val old = unsavedEffects.value ?: effectsState.value
+        val changed = transform(old)
+        // Switching an effect on with "All effects" off did nothing audible, with no hint as
+        // to why. Turning one on now switches the master on too.
+        val turnedOn = (!old.speed.enabled && changed.speed.enabled) || (!old.pitch.enabled && changed.pitch.enabled) ||
+            (!old.reverb.enabled && changed.reverb.enabled) || (!old.threeD.enabled && changed.threeD.enabled)
+        val new = if (turnedOn && !changed.globalEnabled) changed.copy(globalEnabled = true) else changed
+        if (new == old) return
+        unsavedEffects.value = new
+        playbackEngine.applyEffects(new)
+        effectsSave?.cancel()
+        effectsSave = viewModelScope.launch(mutationExceptionHandler) {
+            delay(EFFECTS_SAVE_DELAY_MS)
+            saveUnsavedEffects()
         }
+    }
+
+    private suspend fun saveUnsavedEffects() {
+        val pending = unsavedEffects.value ?: return
+        effectsRepository.update { pending }
+    }
+
+    /** Saves effects still waiting, on a scope that outlives this ViewModel. */
+    private fun flushUnsavedEffects() {
+        if (unsavedEffects.value == null) return
+        effectsSave?.cancel()
+        resumeWriter.launch { runSuspendCatching { saveUnsavedEffects() } }
+    }
+
+    override fun onCleared() {
+        flushUnsavedEffects()
+        super.onCleared()
     }
 
     // --- Sleep timer -------------------------------------------------------------------------

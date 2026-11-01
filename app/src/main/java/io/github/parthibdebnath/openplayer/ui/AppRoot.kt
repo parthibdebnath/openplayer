@@ -54,7 +54,10 @@ import io.github.parthibdebnath.openplayer.ui.theme.LocalScrollLongTitles
 import io.github.parthibdebnath.openplayer.ui.theme.COLOR_TRANSITION_MS
 import io.github.parthibdebnath.openplayer.ui.theme.contentColorForBackground
 import io.github.parthibdebnath.openplayer.ui.theme.rememberCyclingBackground
+import io.github.parthibdebnath.openplayer.ui.components.LocalTextEntryFocus
 import io.github.parthibdebnath.openplayer.ui.components.TagEditor
+import io.github.parthibdebnath.openplayer.ui.components.TextEntryFocus
+import io.github.parthibdebnath.openplayer.ui.components.TextEntryLayer
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
@@ -152,7 +155,9 @@ fun AppRoot(
     val haptics = remember(context) { Haptics(context.applicationContext) }
     haptics.strength = settings.hapticStrength
 
+    val textEntryFocus = remember { TextEntryFocus() }
     CompositionLocalProvider(
+        LocalTextEntryFocus provides textEntryFocus,
         LocalHaptics provides haptics,
         LocalGlassBackdrop provides backdrop,
         LocalGlassEnabled provides settings.glassTheming,
@@ -262,20 +267,22 @@ fun AppRoot(
                             onClick = viewModel::closeTagEditor,
                         ),
                 ) {
-                    TagEditor(
-                        song = song,
-                        // Only once they're this song's: opened on another song, the last one's
-                        // tags would otherwise show for a moment.
-                        songTags = songTags.tags.takeIf { songTags.songId == song.id },
-                        allTags = allTags,
-                        onAdd = { name -> viewModel.addTag(song, name) },
-                        onRemove = { tag -> viewModel.removeTag(song, tag.id) },
-                        onClose = viewModel::closeTagEditor,
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .statusBarsPadding()
-                            .padding(horizontal = 18.dp, vertical = 12.dp),
-                    )
+                    TextEntryLayer {
+                        TagEditor(
+                            song = song,
+                            // Only once they're this song's: opened on another song, the last one's
+                            // tags would otherwise show for a moment.
+                            songTags = songTags.tags.takeIf { songTags.songId == song.id },
+                            allTags = allTags,
+                            onAdd = { name -> viewModel.addTag(song, name) },
+                            onRemove = { tag -> viewModel.removeTag(song, tag.id) },
+                            onClose = viewModel::closeTagEditor,
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .statusBarsPadding()
+                                .padding(horizontal = 18.dp, vertical = 12.dp),
+                        )
+                    }
                 }
             }
         }

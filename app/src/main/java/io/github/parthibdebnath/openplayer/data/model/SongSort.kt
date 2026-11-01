@@ -39,7 +39,7 @@ enum class SongSort(val label: String) {
  * A name split into text and number runs, so numbers compare by value: "Track 2" before
  * "Track 10", where plain text ordering puts "10" first.
  */
-private class NaturalKey(name: String) {
+internal class NaturalKey(name: String) {
     private val parts: List<Any> = buildList {
         var i = 0
         while (i < name.length) {
@@ -69,7 +69,7 @@ private class NaturalKey(name: String) {
 }
 
 /** A run of digits with leading zeros removed, compared by length first so any size fits. */
-private class NumberRun(private val digits: String) : Comparable<NumberRun> {
+internal class NumberRun(private val digits: String) : Comparable<NumberRun> {
     override fun compareTo(other: NumberRun): Int =
         if (digits.length != other.digits.length) digits.length.compareTo(other.digits.length) else digits.compareTo(other.digits)
 }

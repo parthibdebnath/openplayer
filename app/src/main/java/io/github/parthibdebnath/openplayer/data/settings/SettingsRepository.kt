@@ -34,7 +34,7 @@ private val Context.settingsDataStore by preferencesDataStore(
 
 /** Crossfade duration bounds, in milliseconds, and the granularity the slider steps in. Zero is off. */
 const val CROSSFADE_MIN_MS = 0
-const val CROSSFADE_MAX_MS = 15000
+const val CROSSFADE_MAX_MS = 30000
 const val CROSSFADE_STEP_MS = 500
 
 /** Default values are the state a user sees the very first time they open the app. */
@@ -48,7 +48,13 @@ object SettingsDefaults {
     /** Used only where there's no phone setting to follow; see [SettingsRepository.snapshot]. */
     const val TWENTY_FOUR_HOUR_CLOCK = false
     const val SHUFFLE_SEED_LOCKED = false
-    const val CROSSFADE_MS = 0
+
+    /** On = each list keeps its own shuffle, picked up where it was left; Shuffle twice for a new one. */
+    const val PRESERVE_SHUFFLE_PROGRESS = true
+    const val CROSSFADE_MS = 5000
+
+    /** Off: songs crossfade plainly. On: beat-matched DJ transitions, within the crossfade length. */
+    const val DJ_MIX = false
     const val BACKGROUND_PLAYBACK = true
     const val BACKGROUND_COLOR_HEX = "#000000"
     const val DAILY_RANDOM_BACKGROUND = false
@@ -100,7 +106,9 @@ data class SettingsSnapshot(
     val twentyFourHourClock: Boolean = SettingsDefaults.TWENTY_FOUR_HOUR_CLOCK,
     val shuffleSeed: String = "",
     val shuffleSeedLocked: Boolean = SettingsDefaults.SHUFFLE_SEED_LOCKED,
+    val preserveShuffleProgress: Boolean = SettingsDefaults.PRESERVE_SHUFFLE_PROGRESS,
     val crossfadeMs: Int = SettingsDefaults.CROSSFADE_MS,
+    val djMix: Boolean = SettingsDefaults.DJ_MIX,
     val backgroundPlayback: Boolean = SettingsDefaults.BACKGROUND_PLAYBACK,
     val backgroundColorHex: String = SettingsDefaults.BACKGROUND_COLOR_HEX,
     val dailyRandomBackground: Boolean = SettingsDefaults.DAILY_RANDOM_BACKGROUND,
@@ -146,7 +154,9 @@ class SettingsRepository(private val context: Context) {
         val TWENTY_FOUR_HOUR_CLOCK = bool("twenty_four_hour_clock")
         val SHUFFLE_SEED = text("shuffle_seed")
         val SHUFFLE_SEED_LOCKED = bool("shuffle_seed_locked")
+        val PRESERVE_SHUFFLE_PROGRESS = bool("preserve_shuffle_progress")
         val CROSSFADE_MS = int("crossfade_ms")
+        val DJ_MIX = bool("dj_mix")
         val BACKGROUND_PLAYBACK = bool("background_playback")
         val BACKGROUND_COLOR_HEX = text("background_color_hex")
         val DAILY_RANDOM_BACKGROUND = bool("daily_random_background")
@@ -190,7 +200,9 @@ class SettingsRepository(private val context: Context) {
             twentyFourHourClock = p[Keys.TWENTY_FOUR_HOUR_CLOCK] ?: DateFormat.is24HourFormat(context),
             shuffleSeed = p[Keys.SHUFFLE_SEED] ?: "",
             shuffleSeedLocked = p[Keys.SHUFFLE_SEED_LOCKED] ?: SettingsDefaults.SHUFFLE_SEED_LOCKED,
+            preserveShuffleProgress = p[Keys.PRESERVE_SHUFFLE_PROGRESS] ?: SettingsDefaults.PRESERVE_SHUFFLE_PROGRESS,
             crossfadeMs = crossfadeOf(p),
+            djMix = p[Keys.DJ_MIX] ?: SettingsDefaults.DJ_MIX,
             backgroundPlayback = p[Keys.BACKGROUND_PLAYBACK] ?: SettingsDefaults.BACKGROUND_PLAYBACK,
             backgroundColorHex = p[Keys.BACKGROUND_COLOR_HEX] ?: SettingsDefaults.BACKGROUND_COLOR_HEX,
             dailyRandomBackground = p[Keys.DAILY_RANDOM_BACKGROUND] ?: SettingsDefaults.DAILY_RANDOM_BACKGROUND,
@@ -221,11 +233,14 @@ class SettingsRepository(private val context: Context) {
     val restartSongOnOpen: Flow<Boolean> =
         setting { it[Keys.RESTART_SONG_ON_OPEN] ?: SettingsDefaults.RESTART_SONG_ON_OPEN }
     val crossfadeMs: Flow<Int> = setting(::crossfadeOf)
+    val djMix: Flow<Boolean> = setting { it[Keys.DJ_MIX] ?: SettingsDefaults.DJ_MIX }
     val songSort: Flow<SongSort> = setting { SongSort.fromName(it[Keys.SONG_SORT]) }
     val otherAppSound: Flow<OtherAppSound> = setting { OtherAppSound.fromName(it[Keys.OTHER_APP_SOUND]) }
     val skipSilence: Flow<Boolean> = setting { it[Keys.SKIP_SILENCE] ?: SettingsDefaults.SKIP_SILENCE }
     val normalizeVolume: Flow<Boolean> = setting { it[Keys.NORMALIZE_VOLUME] ?: SettingsDefaults.NORMALIZE_VOLUME }
     val rememberLongTracks: Flow<Boolean> = setting { it[Keys.REMEMBER_LONG_TRACKS] ?: SettingsDefaults.REMEMBER_LONG_TRACKS }
+    val preserveShuffleProgress: Flow<Boolean> =
+        setting { it[Keys.PRESERVE_SHUFFLE_PROGRESS] ?: SettingsDefaults.PRESERVE_SHUFFLE_PROGRESS }
 
     /** Whether the Play screen's list of upcoming songs is open, so it's the same next time. */
     val upcomingExpanded: Flow<Boolean> = setting { it[Keys.UPCOMING_EXPANDED] ?: false }
@@ -248,6 +263,7 @@ class SettingsRepository(private val context: Context) {
     suspend fun setGlassTheming(value: Boolean) = set(Keys.GLASS_THEMING, value)
     suspend fun setTwentyFourHourClock(value: Boolean) = set(Keys.TWENTY_FOUR_HOUR_CLOCK, value)
     suspend fun setShuffleSeedLocked(value: Boolean) = set(Keys.SHUFFLE_SEED_LOCKED, value)
+    suspend fun setPreserveShuffleProgress(value: Boolean) = set(Keys.PRESERVE_SHUFFLE_PROGRESS, value)
     suspend fun setBackgroundPlayback(value: Boolean) = set(Keys.BACKGROUND_PLAYBACK, value)
     suspend fun setBackgroundColorHex(value: String) = set(Keys.BACKGROUND_COLOR_HEX, value)
     suspend fun setDailyRandomBackground(value: Boolean) = set(Keys.DAILY_RANDOM_BACKGROUND, value)
@@ -332,6 +348,8 @@ class SettingsRepository(private val context: Context) {
         }
         return applied
     }
+
+    suspend fun setDjMix(value: Boolean) = set(Keys.DJ_MIX, value)
 
     suspend fun setCrossfadeMs(value: Int) {
         val snapped = (Math.round(value / CROSSFADE_STEP_MS.toFloat()) * CROSSFADE_STEP_MS)

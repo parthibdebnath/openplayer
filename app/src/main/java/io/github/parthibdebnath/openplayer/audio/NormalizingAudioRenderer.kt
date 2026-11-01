@@ -63,7 +63,8 @@ class NormalizingAudioRenderer(
     ): Boolean {
         if (format !== lastFormat) {
             lastFormat = format
-            normalizer.trackGainDb = replayGainDb(format.metadata)        }
+            normalizer.trackGainDb = replayGainDb(format.metadata)
+        }
         return super.processOutputBuffer(
             positionUs, elapsedRealtimeUs, codec, buffer, bufferIndex, bufferFlags, sampleCount,
             bufferPresentationTimeUs, isDecodeOnlyBuffer, isLastBuffer, format,
@@ -116,5 +117,5 @@ private const val TRACK_GAIN = "REPLAYGAIN_TRACK_GAIN"
 private const val R128_TRACK_GAIN = "R128_TRACK_GAIN"
 
 /** "-7.89 dB", "+2.1dB", "-7,89 dB" (some taggers write a decimal comma). */
-private fun parseDb(text: String): Float? =
+internal fun parseDb(text: String): Float? =
     text.trim().removeSuffix("dB").removeSuffix("db").removeSuffix("DB").trim().replace(',', '.').toFloatOrNull()

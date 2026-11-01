@@ -1,0 +1,6 @@
+• DJ mix (Settings, under Crossfade): songs are beat-matched and blended like a DJ would, tempos and bar lines lined up, basslines swapped
+• Each playlist keeps its own shuffle; press Shuffle twice for a new order
+• Headset buttons work with the app closed
+• Calls always pause the music; play pressed during a call starts once it ends
+• Crossfade can now be up to 30 seconds
+• Typing goes to the box in front: the tag editor no longer types into the search behind it

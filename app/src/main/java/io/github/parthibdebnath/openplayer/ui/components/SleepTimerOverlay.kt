@@ -46,78 +46,80 @@ fun SleepTimerOverlay(
     var minutesText by remember { mutableStateOf(initialMinutes.toString()) }
     var playLastSongToEnd by remember { mutableStateOf(initialPlayLastSongToEnd) }
 
-    Column(modifier) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(text = "Sleep timer", style = interTextStyle(20, bold = true), color = LocalAppColors.current.onBackground)
-            GlassIconButton(
-                icon = Icons.Filled.RestartAlt,
-                contentDescription = "Dismiss without setting a timer",
-                onClick = onDismiss,
-                circleSize = 24.dp,
-                iconSize = 16.dp,
-            )
-        }
-        Spacer(Modifier.size(12.dp))
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            GlassTextField(
-                value = hoursText,
-                onValueChange = { hoursText = it },
-                modifier = Modifier.width(56.dp),
-                keyboardType = KeyboardType.Number,
-                maxLength = 2,
-                digitsOnly = true,
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(text = "hr", style = interTextStyle(16, bold = false), color = LocalAppColors.current.onBackground)
-            Spacer(Modifier.width(16.dp))
-            GlassTextField(
-                value = minutesText,
-                onValueChange = { minutesText = it },
-                modifier = Modifier.width(56.dp),
-                keyboardType = KeyboardType.Number,
-                maxLength = 2,
-                digitsOnly = true,
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(text = "min", style = interTextStyle(16, bold = false), color = LocalAppColors.current.onBackground)
-            // Confirm sits at the right edge, level with the hr/min fields, per the mockup.
-            Spacer(Modifier.weight(1f))
-            Icon(
-                imageVector = Icons.Filled.Check,
-                contentDescription = "Confirm sleep timer",
-                tint = LocalAppColors.current.onBackground,
-                modifier = Modifier
-                    .size(28.dp)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                    ) {
-                        onConfirm(
-                            hoursText.toIntOrNull() ?: 0,
-                            minutesText.toIntOrNull() ?: 0,
-                            playLastSongToEnd,
-                        )
-                    },
-            )
-        }
-        Spacer(Modifier.size(20.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(text = "Play last song to end?", style = interTextStyle(20, bold = true), color = LocalAppColors.current.onBackground)
-            GlassIconButton(
-                icon = if (playLastSongToEnd) Icons.Filled.Check else Icons.Filled.Close,
-                contentDescription = "Toggle play last song to end",
-                onClick = { playLastSongToEnd = !playLastSongToEnd },
-                circleSize = 30.dp,
-                iconSize = 20.dp,
-            )
+    TextEntryLayer {
+        Column(modifier) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(text = "Sleep timer", style = interTextStyle(20, bold = true), color = LocalAppColors.current.onBackground)
+                GlassIconButton(
+                    icon = Icons.Filled.RestartAlt,
+                    contentDescription = "Dismiss without setting a timer",
+                    onClick = onDismiss,
+                    circleSize = 24.dp,
+                    iconSize = 16.dp,
+                )
+            }
+            Spacer(Modifier.size(12.dp))
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                GlassTextField(
+                    value = hoursText,
+                    onValueChange = { hoursText = it },
+                    modifier = Modifier.width(56.dp),
+                    keyboardType = KeyboardType.Number,
+                    maxLength = 2,
+                    digitsOnly = true,
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(text = "hr", style = interTextStyle(16, bold = false), color = LocalAppColors.current.onBackground)
+                Spacer(Modifier.width(16.dp))
+                GlassTextField(
+                    value = minutesText,
+                    onValueChange = { minutesText = it },
+                    modifier = Modifier.width(56.dp),
+                    keyboardType = KeyboardType.Number,
+                    maxLength = 2,
+                    digitsOnly = true,
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(text = "min", style = interTextStyle(16, bold = false), color = LocalAppColors.current.onBackground)
+                // Confirm sits at the right edge, level with the hr/min fields, per the mockup.
+                Spacer(Modifier.weight(1f))
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    contentDescription = "Confirm sleep timer",
+                    tint = LocalAppColors.current.onBackground,
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ) {
+                            onConfirm(
+                                hoursText.toIntOrNull() ?: 0,
+                                minutesText.toIntOrNull() ?: 0,
+                                playLastSongToEnd,
+                            )
+                        },
+                )
+            }
+            Spacer(Modifier.size(20.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(text = "Play last song to end?", style = interTextStyle(20, bold = true), color = LocalAppColors.current.onBackground)
+                GlassIconButton(
+                    icon = if (playLastSongToEnd) Icons.Filled.Check else Icons.Filled.Close,
+                    contentDescription = "Toggle play last song to end",
+                    onClick = { playLastSongToEnd = !playLastSongToEnd },
+                    circleSize = 30.dp,
+                    iconSize = 20.dp,
+                )
+            }
         }
     }
 }

@@ -13,6 +13,7 @@ import io.github.parthibdebnath.openplayer.data.model.Playlist
 import io.github.parthibdebnath.openplayer.data.model.Song
 import io.github.parthibdebnath.openplayer.data.model.Tag
 import io.github.parthibdebnath.openplayer.data.model.normalizeTagName
+import io.github.parthibdebnath.openplayer.util.runSuspendCatching
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,6 +35,7 @@ class PlaylistRepository(private val context: Context) {
     private val playlistDao = db.playlistDao()
     private val songDao = db.songDao()
     private val tagDao = db.tagDao()
+    private val trackAnalysisDao = db.trackAnalysisDao()
     private val scanner = PlaylistScanner(context, db)
 
     // flowOn matters here: without it the entity-to-model mapping runs on whichever dispatcher
@@ -124,6 +126,7 @@ class PlaylistRepository(private val context: Context) {
         }
         playlistDao.delete(entity)
         tagDao.pruneOrphans()
+        runSuspendCatching { trackAnalysisDao.deleteOrphans() }
     }
 
     private val activeScans = AtomicInteger(0)
@@ -137,8 +140,11 @@ class PlaylistRepository(private val context: Context) {
     private suspend fun <T> whileScanning(block: suspend () -> T): T {
         synchronized(activeScans) { _scanning.value = activeScans.incrementAndGet() > 0 }
         return try {
-            // A scan drops the rows of files that have gone; their tags go with them here.
-            block().also { runCatching { tagDao.pruneOrphans() } }
+            // A scan drops the rows of files that have gone; their tags and analyses go with them here.
+            block().also {
+                runSuspendCatching { tagDao.pruneOrphans() }
+                runSuspendCatching { trackAnalysisDao.deleteOrphans() }
+            }
         } finally {
             synchronized(activeScans) { _scanning.value = activeScans.decrementAndGet() > 0 }
         }
@@ -281,6 +287,11 @@ class PlaylistRepository(private val context: Context) {
             .map { list -> list.map { it.toModel() } }
             .distinctUntilChanged()
             .flowOn(Dispatchers.IO)
+
+    /** Every favourite as the database has it now, even straight after a change the flow above hasn't caught up with. */
+    suspend fun getFavourites(): List<Song> = withContext(Dispatchers.IO) {
+        songDao.getFavourites().map { it.toModel() }
+    }
 
     suspend fun setFavourite(songId: Long, favourite: Boolean) = withContext(Dispatchers.IO) {
         songDao.updateFavourite(songId, favourite)

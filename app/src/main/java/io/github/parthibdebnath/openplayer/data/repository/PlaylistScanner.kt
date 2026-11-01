@@ -119,6 +119,9 @@ class PlaylistScanner(
                 // The row is replaced whole, so anything the user set has to be carried over -
                 // re-tagging a file changes its timestamp, and that dropped it from Favourites.
                 isFavourite = current?.isFavourite ?: false,
+                // Likewise where a long track was left off: re-tagging an audiobook chapter sent
+                // it back to the start.
+                resumePositionMs = current?.resumePositionMs ?: 0L,
             )
         }
         if (rows.isNotEmpty()) songDao.insertAll(rows)

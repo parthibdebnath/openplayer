@@ -13,6 +13,18 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import android.media.AudioAttributes as SystemAudioAttributes
 
+/** What asking for audio focus came to; see [AudioFocusController.requestFocus]. */
+enum class FocusResult {
+    /** Held: go ahead and play. */
+    GRANTED,
+
+    /** Not yet - a call, usually. Playback starts by itself when focus comes (see onDelayedGain). */
+    DELAYED,
+
+    /** Refused: don't play. */
+    DENIED,
+}
+
 /**
  * Owns one audio focus request for the whole engine, and decides what other apps' sounds do to
  * the music.
@@ -42,6 +54,8 @@ class AudioFocusController(
     private val ownActivePlayers: () -> Int,
     /** Another app has taken the audio over for good, and playback has been paused for it. */
     private val onTakenOver: () -> Unit,
+    /** Focus asked for earlier and put off has now been granted: start what was asked for. */
+    private val onDelayedGain: () -> Unit,
 ) {
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private var holdsFocus = false
@@ -54,6 +68,15 @@ class AudioFocusController(
 
     private var takeoverJob: Job? = null
     private var pausedForTakeoverCheck = false
+
+    /** Play was pressed while focus could only be promised for later; see [FocusResult.DELAYED]. */
+    private var startWhenGranted = false
+
+    /**
+     * Focus is lent out for a while - a call, an alarm, a voice search. Still ours on paper, so
+     * [holdsFocus] stays true, but not ours to play over: play pressed now has to ask again.
+     */
+    private var lentOut = false
 
     /** What a short interruption from another app does; see [OtherAppSound]. */
     var mode: OtherAppSound = OtherAppSound.LOWER_VOLUME
@@ -68,30 +91,54 @@ class AudioFocusController(
         when (change) {
             AudioManager.AUDIOFOCUS_LOSS -> {
                 holdsFocus = false
+                lentOut = false
                 pausedForTransientLoss = false
                 setTransientDuck(false)
                 startTakeoverCheck()
             }
 
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> when (mode) {
-                // Only arm the resume if this actually interrupted playback. Focus is still held
-                // while paused, so a voice search or an alarm hands it back afterwards - and
-                // resuming on that would start music the user had deliberately stopped.
-                OtherAppSound.PAUSE -> pausedForTransientLoss = onPauseForFocusLoss()
-                OtherAppSound.LOWER_VOLUME -> setTransientDuck(true)
-                OtherAppSound.KEEP_PLAYING -> Unit
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                lentOut = true
+                onTransientLoss()
             }
 
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> if (mode != OtherAppSound.KEEP_PLAYING) setTransientDuck(true)
 
             AudioManager.AUDIOFOCUS_GAIN -> {
                 holdsFocus = true
+                lentOut = false
                 setTransientDuck(false)
-                if (pausedForTransientLoss) {
-                    pausedForTransientLoss = false
-                    onResumeAfterFocusLoss()
+                when {
+                    startWhenGranted -> {
+                        startWhenGranted = false
+                        pausedForTransientLoss = false
+                        onDelayedGain()
+                    }
+                    pausedForTransientLoss -> {
+                        pausedForTransientLoss = false
+                        onResumeAfterFocusLoss()
+                    }
                 }
             }
+        }
+    }
+
+    /**
+     * Only arms the resume if this actually interrupted playback. Focus is still held while
+     * paused, so a voice search or an alarm hands it back afterwards - and resuming on that would
+     * start music the user had deliberately stopped.
+     */
+    private fun onTransientLoss() {
+        when {
+            // A call is never something to talk over or merely dip under, whatever the setting
+            // says: "Keep playing" played music into phone calls.
+            isCommunicating() -> {
+                setTransientDuck(false)
+                pausedForTransientLoss = onPauseForFocusLoss() || pausedForTransientLoss
+            }
+            mode == OtherAppSound.PAUSE -> pausedForTransientLoss = onPauseForFocusLoss()
+            mode == OtherAppSound.LOWER_VOLUME -> setTransientDuck(true)
+            else -> Unit
         }
     }
 
@@ -144,8 +191,9 @@ class AudioFocusController(
             if (onPauseForFocusLoss() || wasPausedForCheck) onTakenOver()
         } else {
             Log.i("AudioFocusController", "Focus loss was only a short sound - carrying on")
-            // Back in the focus stack, so the next interruption is heard about too.
-            requestFocus()
+            // Back in the focus stack, so the next interruption is heard about too. Not a request
+            // to start anything later, though: that's decided right here.
+            if (requestFocus() == FocusResult.DELAYED) startWhenGranted = false
             if (wasPausedForCheck) onResumeAfterFocusLoss()
         }
     }
@@ -163,6 +211,21 @@ class AudioFocusController(
      * the anonymised list it hands back), so the count is the answer - minus our own. A failure to
      * read it counts as "something is playing", which errs towards the old, safe pause.
      */
+    /**
+     * Whether a phone or video call, a ringing phone or an assistant has the audio. The mode says
+     * so for calls; an app's own calling or an assistant shows up as a player with that usage.
+     */
+    private fun isCommunicating(): Boolean {
+        val callMode = runCatching { audioManager.mode }.getOrDefault(AudioManager.MODE_NORMAL)
+        if (callMode in CALL_MODES) return true
+        val configs = runCatching { audioManager.activePlaybackConfigurations }.getOrNull() ?: return false
+        return configs.any { it.audioAttributes.usage in COMMUNICATION_USAGES }
+    }
+
+    /** Whether playback was stopped by another app and will start again by itself. */
+    val resumePending: Boolean
+        get() = pausedForTransientLoss || pausedForTakeoverCheck || startWhenGranted
+
     private fun otherActivePlayers(): Int {
         val active = runCatching { audioManager.activePlaybackConfigurations.size }.getOrNull() ?: return Int.MAX_VALUE
         return (active - ownActivePlayers()).coerceAtLeast(0)
@@ -185,17 +248,21 @@ class AudioFocusController(
      */
     fun onPlaybackPausedDeliberately() {
         pausedForTransientLoss = false
+        startWhenGranted = false
         cancelTakeoverCheck()
     }
 
     /**
-     * Asks for focus if we don't already hold it. Playback proceeds either way - a denial is
-     * logged rather than used to block the user's own explicit request to play.
+     * Asks for focus if we don't already hold it, and says whether playback may start.
+     *
+     * A refusal is obeyed: it means a call is in progress, and playing anyway put music on top of
+     * it. A delayed grant - also a call, on most phones - is remembered, and playback starts by
+     * itself through [onDelayedGain] once the call is over, unless it's paused in the meantime.
      */
-    fun requestFocus() {
+    fun requestFocus(): FocusResult {
         // Pressing play settles any takeover check in progress: the user has decided.
         if (takeoverJob != null) cancelTakeoverCheck()
-        if (holdsFocus) return
+        if (holdsFocus && !lentOut) return FocusResult.GRANTED
         val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val focusRequest = request ?: AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
                 .setAudioAttributes(
@@ -207,6 +274,7 @@ class AudioFocusController(
                 // Without this the system ducks us itself on Android 8+ and never says so, which
                 // made "Keep playing" dip anyway. Declaring that we handle it means we're told.
                 .setWillPauseWhenDucked(true)
+                .setAcceptsDelayedFocusGain(true)
                 .setOnAudioFocusChangeListener(listener)
                 .build()
                 .also { request = it }
@@ -216,12 +284,31 @@ class AudioFocusController(
             audioManager.requestAudioFocus(listener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
         }
         holdsFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-        if (!holdsFocus) Log.w("AudioFocusController", "Audio focus not granted (result=$result)")
+        if (holdsFocus) lentOut = false
+        return when (result) {
+            AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> {
+                startWhenGranted = false
+                FocusResult.GRANTED
+            }
+            AudioManager.AUDIOFOCUS_REQUEST_DELAYED -> {
+                Log.i("AudioFocusController", "Audio focus delayed - starting once it's granted")
+                startWhenGranted = true
+                FocusResult.DELAYED
+            }
+            else -> {
+                Log.w("AudioFocusController", "Audio focus refused (result=$result)")
+                startWhenGranted = false
+                FocusResult.DENIED
+            }
+        }
     }
 
     fun abandonFocus() {
         cancelTakeoverCheck()
-        if (!holdsFocus) return
+        // A pending delayed request is abandoned too, so it can't start playback later.
+        val pending = startWhenGranted
+        startWhenGranted = false
+        if (!holdsFocus && !pending) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             request?.let { audioManager.abandonAudioFocusRequest(it) }
         } else {
@@ -229,11 +316,29 @@ class AudioFocusController(
             audioManager.abandonAudioFocus(listener)
         }
         holdsFocus = false
+        lentOut = false
         pausedForTransientLoss = false
         setTransientDuck(false)
     }
 
     private companion object {
+        val CALL_MODES = buildSet {
+            add(AudioManager.MODE_IN_CALL)
+            add(AudioManager.MODE_IN_COMMUNICATION)
+            add(AudioManager.MODE_RINGTONE)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) add(AudioManager.MODE_CALL_SCREENING)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                add(AudioManager.MODE_CALL_REDIRECT)
+                add(AudioManager.MODE_COMMUNICATION_REDIRECT)
+            }
+        }
+
+        val COMMUNICATION_USAGES = setOf(
+            SystemAudioAttributes.USAGE_VOICE_COMMUNICATION,
+            SystemAudioAttributes.USAGE_VOICE_COMMUNICATION_SIGNALLING,
+            SystemAudioAttributes.USAGE_ASSISTANT,
+        )
+
         /** How long the other app gets to start its sound before we look. */
         const val TAKEOVER_SETTLE_MS = 400L
         const val TAKEOVER_POLL_MS = 250L

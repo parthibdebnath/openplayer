@@ -1,7 +1,8 @@
 package io.github.parthibdebnath.openplayer.audio
 
 import io.github.parthibdebnath.openplayer.data.model.Song
-import kotlin.random.Random
+import io.github.parthibdebnath.openplayer.data.settings.SavedShuffle
+import io.github.parthibdebnath.openplayer.util.stableHash64
 
 enum class RepeatMode { OFF, ONE, ALL }
 
@@ -10,6 +11,38 @@ enum class PlayOrder { SEQUENTIAL, SHUFFLED }
 
 /** Number of upcoming songs shown on the main play screen when expanded. */
 const val VISIBLE_UPCOMING_COUNT = 5
+
+private const val LIST_SOURCE_PREFIX = "list:"
+private const val MULTI_SOURCE_PREFIX = "multi:"
+
+/**
+ * [PlaybackQueueManager.sourceKey] for a list in the File tab - a playlist, Favourites or a tag's
+ * list, by the playlist id the File tab knows it by.
+ */
+fun listSourceKey(playlistId: Long): String = "$LIST_SOURCE_PREFIX$playlistId"
+
+/** [PlaybackQueueManager.sourceKey] for several playlists played together; the same whatever order they were picked in. */
+fun multiSourceKey(playlistIds: Collection<Long>): String = MULTI_SOURCE_PREFIX + playlistIds.sorted().joinToString(",")
+
+/**
+ * [songs] shuffled by [shuffleSeed]: the same seed and the same songs give the same order every
+ * time, however the songs happen to be listed. They're put into a fixed order first - by file,
+ * not by the sort the list is shown in - which used to decide the order too, so changing the
+ * song sort setting reshuffled a "locked" seed.
+ */
+fun shuffledOrder(songs: List<Song>, shuffleSeed: String): List<Song> =
+    canonicalOrder(songs).apply { shuffleWith(ShuffleRandom(shuffleSeed)) }
+
+/** By document uri, then id for the (unlikely) same file listed twice. */
+private fun canonicalOrder(songs: List<Song>): MutableList<Song> =
+    songs.sortedWith(compareBy<Song> { it.documentUri }.thenBy { it.id }).toMutableList()
+
+/** The list id a [listSourceKey] stands for, or null for any other key. */
+fun listIdOf(sourceKey: String): Long? = sourceKey.takeIf { it.startsWith(LIST_SOURCE_PREFIX) }?.removePrefix(LIST_SOURCE_PREFIX)?.toLongOrNull()
+
+/** The playlist ids a [multiSourceKey] stands for, or null for any other key. */
+fun multiPlaylistIdsOf(sourceKey: String): List<Long>? =
+    sourceKey.takeIf { it.startsWith(MULTI_SOURCE_PREFIX) }?.removePrefix(MULTI_SOURCE_PREFIX)?.split(',')?.mapNotNull { it.toLongOrNull() }
 
 /**
  * Owns the play queue: the active pool of songs (single or merged multi-playlist), shuffle
@@ -23,6 +56,14 @@ const val VISIBLE_UPCOMING_COUNT = 5
 class PlaybackQueueManager {
     private var pool: List<Song> = emptyList()
     var playlistLabel: String = ""
+        private set
+
+    /**
+     * Which list the pool is - see [listSourceKey] - so its shuffle can be set aside and picked up
+     * again from that list. Null for anything that can't be picked again, like a file opened from
+     * another app.
+     */
+    var sourceKey: String? = null
         private set
 
     var repeatMode: RepeatMode = RepeatMode.OFF
@@ -89,9 +130,11 @@ class PlaybackQueueManager {
         played: List<Song>,
         repeat: RepeatMode,
         order: PlayOrder,
+        sourceKey: String?,
     ) {
         this.pool = pool
         playlistLabel = label
+        this.sourceKey = sourceKey
         this.current = current
         repeatMode = repeat
         playOrder = order
@@ -109,9 +152,17 @@ class PlaybackQueueManager {
      *   for a shuffle means the first song of the shuffled order. Passing 0 here for a shuffle
      *   pinned the playlist's first song to the front and only shuffled everything after it.
      */
-    fun startPlaylist(songs: List<Song>, label: String, order: PlayOrder, shuffleSeed: String, startIndex: Int? = null) {
+    fun startPlaylist(
+        songs: List<Song>,
+        label: String,
+        order: PlayOrder,
+        shuffleSeed: String,
+        startIndex: Int? = null,
+        sourceKey: String? = null,
+    ) {
         pool = songs
         playlistLabel = label
+        this.sourceKey = sourceKey
         playOrder = order
         history.clear()
         explicitQueue.clear()
@@ -158,8 +209,104 @@ class PlaybackQueueManager {
                 }
                 after + before
             }
-            PlayOrder.SHUFFLED -> pool.filter { it.id !in playedIds }.shuffled(Random(shuffleSeed.hashCode().toLong()))
+            PlayOrder.SHUFFLED -> shuffledOrder(pool.filter { it.id !in playedIds }, shuffleSeed)
         }
+        changed()
+    }
+
+    /**
+     * Where this shuffle has got to, to set aside and pick up again from its list. Null when it
+     * isn't a list's shuffle, or when it has finished and there's nothing to come back to.
+     */
+    fun shuffleProgress(): SavedShuffle? {
+        val key = sourceKey ?: return null
+        if (playOrder != PlayOrder.SHUFFLED || upcoming.isEmpty()) return null
+        return SavedShuffle(
+            sourceKey = key,
+            playedSongIds = history.map { it.id },
+            currentSongId = current?.id,
+            upcomingSongIds = upcoming.map { it.id },
+        )
+    }
+
+    /**
+     * Picks a set-aside shuffle back up exactly where it was left. [songs] is the list as it is
+     * now: songs removed since drop out, and songs added since are dealt into random places among
+     * those still to come, so the order already heard - and the song it stopped on - stay as they
+     * were.
+     *
+     * @return false, leaving the queue untouched, if nothing of [saved] is still to play.
+     */
+    fun resumeShuffle(songs: List<Song>, label: String, saved: SavedShuffle, shuffleSeed: String): Boolean {
+        val byId = songs.associateBy { it.id }
+        val seen = HashSet<Long>()
+        val played = saved.playedSongIds.mapNotNull { id -> byId[id]?.takeIf { seen.add(id) } }
+        val resumed = saved.currentSongId?.let { id -> byId[id]?.takeIf { seen.add(id) } }
+        val remaining = saved.upcomingSongIds.mapNotNullTo(ArrayList()) { id -> byId[id]?.takeIf { seen.add(id) } }
+        // Nothing to pick up: every song left to play has gone (or none of the ids match - a
+        // reinstall gives every song a new one). Dealing the whole list into an empty order
+        // would only be a new shuffle that skipped the seed.
+        if (resumed == null && remaining.isEmpty()) return false
+        dealIn(remaining, songs.filter { it.id !in seen }, shuffleSeed)
+
+        pool = songs
+        playlistLabel = label
+        sourceKey = saved.sourceKey
+        playOrder = PlayOrder.SHUFFLED
+        history.clear()
+        history += played
+        explicitQueue.clear()
+        upcoming.clear()
+        upcoming += remaining
+        current = resumed ?: upcoming.removeFirstOrNull()
+        changed()
+        return true
+    }
+
+    /**
+     * Adds songs that have joined the list since this shuffle started - a rescan, files added to
+     * the folder, a new favourite - dealt into random places among the songs still to come, as
+     * [resumeShuffle] does. Only for a shuffle: in order, they belong at their place in the list.
+     *
+     * @return whether anything was added.
+     */
+    fun addNewSongs(songs: List<Song>, shuffleSeed: String): Boolean {
+        if (playOrder != PlayOrder.SHUFFLED) return false
+        val known = HashSet<Long>(pool.size + 1).apply {
+            pool.forEach { add(it.id) }
+            current?.let { add(it.id) }
+        }
+        val newSongs = songs.filter { it.id !in known }
+        if (newSongs.isEmpty()) return false
+        pool = pool + newSongs
+        dealIn(upcoming, newSongs, shuffleSeed)
+        changed()
+        return true
+    }
+
+    /**
+     * Inserts each of [newSongs] at a random place in [into], anywhere from next up to last - one
+     * at a time, which leaves them evenly spread and in a random order among themselves.
+     */
+    private fun dealIn(into: MutableList<Song>, newSongs: List<Song>, shuffleSeed: String) {
+        if (newSongs.isEmpty()) return
+        // Seeded, like the shuffle itself, so a locked seed deals the same songs the same way.
+        val random = ShuffleRandom(stableHash64(shuffleSeed) * 31 + newSongs.first().id)
+        canonicalOrder(newSongs).forEach { into.add(random.nextInt(into.size + 1), it) }
+    }
+
+    /**
+     * Plays [song] now and carries on in the same order afterwards - a song picked from a list
+     * whose shuffle is being kept. What was playing counts as played, as if skipped; Previous
+     * goes back to it.
+     */
+    fun jumpTo(song: Song) {
+        val leaving = current
+        if (leaving != null && leaving.id != song.id) history.add(leaving)
+        upcoming.removeAll { it.id == song.id }
+        history.removeAll { it.id == song.id }
+        if (pool.none { it.id == song.id }) pool = pool + song
+        current = song
         changed()
     }
 

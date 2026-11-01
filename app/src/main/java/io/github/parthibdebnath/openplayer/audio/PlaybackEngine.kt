@@ -5,6 +5,7 @@ package io.github.parthibdebnath.openplayer.audio
 import android.content.Context
 import android.media.AudioDeviceInfo
 import android.net.Uri
+import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
@@ -16,16 +17,28 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import io.github.parthibdebnath.openplayer.audio.mix.MixChannelAudioProcessor
+import io.github.parthibdebnath.openplayer.audio.mix.MixPlan
+import io.github.parthibdebnath.openplayer.audio.mix.MixPlanner
+import io.github.parthibdebnath.openplayer.audio.mix.MixStyle
+import io.github.parthibdebnath.openplayer.audio.mix.TempoAudioProcessor
 import io.github.parthibdebnath.openplayer.data.model.Song
+import io.github.parthibdebnath.openplayer.data.repository.TrackAnalysisRepository
 import io.github.parthibdebnath.openplayer.data.settings.EffectsState
 import io.github.parthibdebnath.openplayer.data.settings.OtherAppSound
 import io.github.parthibdebnath.openplayer.data.settings.PlaybackStateRepository
 import io.github.parthibdebnath.openplayer.data.settings.SavedPosition
 import io.github.parthibdebnath.openplayer.data.settings.SavedExternalSong
 import io.github.parthibdebnath.openplayer.data.settings.SavedQueue
+import io.github.parthibdebnath.openplayer.data.settings.SavedShuffle
+import io.github.parthibdebnath.openplayer.data.settings.SettingsDefaults
+import io.github.parthibdebnath.openplayer.data.settings.SettingsRepository
+import io.github.parthibdebnath.openplayer.data.settings.ShuffleProgressStore
 import io.github.parthibdebnath.openplayer.data.repository.EXTERNAL_PLAYLIST_ID
 import io.github.parthibdebnath.openplayer.data.repository.ExternalSongs
 import io.github.parthibdebnath.openplayer.data.repository.isExternal
+import io.github.parthibdebnath.openplayer.util.runSuspendCatching
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -62,9 +75,15 @@ private class PlayerSlot(context: Context, audioAttributes: AudioAttributes) {
     val reverb = ReverbAudioProcessor()
     val threeD = ThreeDAudioProcessor()
 
+    /** The DJ mix's level and filter for this deck. */
+    val mixChannel = MixChannelAudioProcessor()
+
+    /** The DJ mix's tempo for this deck. */
+    val tempo = TempoAudioProcessor()
+
     val player: ExoPlayer = ExoPlayer.Builder(
         context,
-        CustomRenderersFactory(context, normalization, reverb, threeD),
+        CustomRenderersFactory(context, normalization, reverb, threeD, mixChannel, tempo),
         audioMediaSourceFactory(context),
     )
         // Focus is handled centrally by AudioFocusController instead of per-player - see there.
@@ -77,6 +96,21 @@ private class PlayerSlot(context: Context, audioAttributes: AudioAttributes) {
 
     /** The crossfade's own gain for this slot, kept separate from the global ducking gain. */
     var fadeGain: Float = 1f
+
+    // The tempo easing back to normal after a DJ mix: from glideFrom, over glideTotalMs of playing
+    // time. Not gliding while glideTotalMs is 0.
+    var glideFrom: Double = 1.0
+    var glideTotalMs: Double = 0.0
+    var glideElapsedMs: Double = 0.0
+
+    /** Back to plain playback: normal tempo, full level, no filter. */
+    fun resetMix() {
+        tempo.rate = 1f
+        tempo.holdAtStart(0L)
+        glideTotalMs = 0.0
+        mixChannel.gain = 1f
+        mixChannel.cutoffHz = MixChannelAudioProcessor.FLOOR_HZ
+    }
 }
 
 /**
@@ -157,6 +191,7 @@ class PlaybackEngine private constructor(context: Context) {
             notice = "Paused because another app started playing"
             syncState()
         },
+        onDelayedGain = { play() },
     )
 
     /** What other apps' short sounds do to the music; see [io.github.parthibdebnath.openplayer.data.settings.OtherAppSound]. */
@@ -179,6 +214,26 @@ class PlaybackEngine private constructor(context: Context) {
     val uiState: StateFlow<PlaybackUiState> = _uiState.asStateFlow()
 
     private var currentShuffleSeed: String = ""
+
+    /** Each list's shuffle, set aside while something else plays; see [shufflePlay]. */
+    private val savedShuffles = ShuffleProgressStore(appContext, engineScope)
+
+    /**
+     * Whether each list keeps its own shuffle, picked up where it was left. Turned off, the saved
+     * ones are forgotten, so turning it back on later doesn't pick up shuffles long gone stale.
+     */
+    var preserveShuffleProgress: Boolean = true
+        set(value) {
+            field = value
+            if (!value) savedShuffles.clear()
+        }
+
+    /**
+     * The list whose Shuffle button last started or picked up the queue's shuffle, while that's
+     * still what is playing - so the next press on it means "a new shuffle", not "carry on".
+     */
+    private var shuffleStartedFrom: String? = null
+
     private var lastError: String? = null
 
     /** The sleep timer's fade: 1 normally, falling to 0 over the last moments before it stops. */
@@ -221,21 +276,28 @@ class PlaybackEngine private constructor(context: Context) {
     private var consecutiveUnplayable = 0
 
     /** Overlap length in milliseconds; zero disables crossfading and re-enables the gapless window. */
-    @Volatile var crossfadeMs: Int = 0
+    @Volatile var crossfadeMs: Int = SettingsDefaults.CROSSFADE_MS
         set(value) {
             val changed = field != value
             field = value
             // The two modes need different things loaded in the player, so switching between them
             // mid-song has to rewrite what's queued - otherwise turning crossfade on would leave a
             // preloaded next track that plays at the same time as the one being faded in.
-            if (changed) updateWindowForCurrentMode()
+            if (changed) {
+                updateWindowForCurrentMode()
+                // A DJ mix's length comes from this too.
+                if (djRun == null) mixPlanSongs = null
+            }
         }
 
     /** 0f..1f through the current overlap, or null when no crossfade is running. */
     private var fadeProgress: Float? = null
 
-    /** Length of the overlap actually in progress - capped to what was left of the outgoing track. */
-    private var activeFadeDurationMs: Int = 0
+    /**
+     * How much of the outgoing track the overlap in progress spans, in that track's own time -
+     * capped to what was left of it. See [crossfadeProgress].
+     */
+    private var activeFadeLengthMs: Long = 0L
 
     // --- Persistence state --------------------------------------------------------------------
     //
@@ -253,6 +315,18 @@ class PlaybackEngine private constructor(context: Context) {
      * before the saved state had been read back, and overwrite it with an empty queue.
      */
     private var restoreAttempted = false
+
+    /** Whether the saved queue has been read back (or there was none); an empty queue before then means nothing. */
+    val restoreDone: Boolean get() = restoreAttempted
+
+    /** Play was asked for before the restore had run; see [play]. */
+    private var playWhenRestored = false
+
+    /**
+     * Paused by another app's sound - a call, an interruption - and due to start again by itself.
+     * The media service stays in the foreground through these, or it couldn't come back.
+     */
+    val resumesByItself: Boolean get() = focusController.resumePending
 
     /** Whether a save of a changed queue is already on its way; see [scheduleQueueSave]. */
     private var queueSaveScheduled = false
@@ -281,7 +355,7 @@ class PlaybackEngine private constructor(context: Context) {
                     syncState()
                     anyPlaying.first { it }
                 }
-                advanceCrossfade()
+                advanceTransition()
                 updateSleepFade()
                 syncState()
                 delay(nextTickDelayMs())
@@ -375,6 +449,8 @@ class PlaybackEngine private constructor(context: Context) {
                     it.normalization.forceBypass = true
                     it.reverb.forceBypass = true
                     it.threeD.forceBypass = true
+                    it.mixChannel.forceBypass = true
+                    it.tempo.forceBypass = true
                 }
                 Log.w("PlaybackEngine", "Runtime check failed - bypassing custom DSP and retrying")
             }
@@ -424,17 +500,33 @@ class PlaybackEngine private constructor(context: Context) {
      * one is coming up, so it still begins on time.
      */
     private fun nextTickDelayMs(): Long {
-        if (fadeProgress != null || sleepGain < 1f) return TICK_MS
+        if (fadeProgress != null || sleepGain < 1f || djRun != null) return TICK_MS
         val idle = if (uiVisible) UI_TICK_MS else BACKGROUND_TICK_MS
         // Close enough to the sleep timer's fade that the next tick has to start it on time.
         val untilSleepFade = sleepFadeRemainingMs() - SLEEP_FADE_MS
         if (untilSleepFade < idle) return untilSleepFade.coerceIn(TICK_MS, idle)
         val fadeMs = crossfadeMs
+        // A DJ mix that's been planned: woken in time for its tempo ramp and its start, which
+        // take the place of the crossfade's.
+        val upcomingMix = mixPlan?.takeIf { djMix && fadeMs > 0 && mixPlanSongs != null }
+        if (upcomingMix != null) {
+            val playerRef = active.player
+            val speed = playerRef.playbackParameters.speed.coerceAtLeast(0.01f)
+            val position = playerRef.currentPosition.toDouble()
+            if (upcomingMix.style == MixStyle.BEATMATCH && position >= upcomingMix.outRampStartMs) return TICK_MS
+            val untilEvent = minOf(upcomingMix.outRampStartMs, upcomingMix.outPrerollMs - mixStartLeadMs(upcomingMix)) - position
+            val untilReal = (untilEvent / speed).toLong()
+            return if (untilReal < idle) untilReal.coerceIn(TICK_MS, idle) else idle
+        }
         if (fadeMs > 0) {
             val playerRef = active.player
             val duration = playerRef.duration
             if (duration > 0) {
-                val untilFade = duration - playerRef.currentPosition - fadeMs
+                val speed = playerRef.playbackParameters.speed
+                val untilFadeMedia = duration - playerRef.currentPosition - crossfadeMediaLengthMs(fadeMs, speed)
+                // The track's time runs at the playback speed; the delay is in real time. Read as
+                // real time, a fade at 2x speed started a tick late, with half of it already gone.
+                val untilFade = (untilFadeMedia / speed.coerceAtLeast(0.01f)).toLong()
                 if (untilFade < idle) return untilFade.coerceIn(TICK_MS, idle)
             }
         }
@@ -503,15 +595,344 @@ class PlaybackEngine private constructor(context: Context) {
         }
     }
 
+    // --- DJ mix -------------------------------------------------------------------------------
+    //
+    // With "DJ mix" on, songs aren't simply crossfaded: each is analysed (tempo, beat grid, bar
+    // lines, key, where its intro and outro are - see BeatAnalyzer), and the hand-over is planned
+    // like a DJ's (MixPlanner). The two songs' tempos meet in the middle, the next song starts in
+    // silence and is locked onto the beat, then comes in over the outgoing song's outro, bar line
+    // on bar line, with the basslines swapped half-way so they never fight. Afterwards its tempo
+    // eases back to normal too slowly to hear. Songs whose beats can't be matched get a filtered
+    // fade that skips the silences either side instead, and songs not yet analysed a plain
+    // crossfade.
+
+    /** Song analyses for the DJ mix, worked out in the background as songs come up. */
+    private val analyses = TrackAnalysisRepository(appContext, engineScope).also { repository ->
+        repository.onReady = { songId ->
+            val pair = mixPlanSongs
+            if (djRun == null && pair != null && (songId == pair.first || songId == pair.second)) mixPlanSongs = null
+        }
+    }
+
+    /** Beat-matched DJ transitions in place of plain crossfades; the length is still [crossfadeMs]. */
+    var djMix: Boolean = false
+        set(value) {
+            if (field == value) return
+            field = value
+            // A mix already under way finishes; one only planned is dropped.
+            if (!value && djRun == null) {
+                mixPlan = null
+                mixPlanSongs = null
+                releaseTempo(active, beatMs = 0.0)
+            }
+        }
+
+    /** The plan for mixing the current song into the next, or null for a plain crossfade. */
+    private var mixPlan: MixPlan? = null
+
+    /** The (current, next) songs [mixPlan] was made for; null when it needs making (again). */
+    private var mixPlanSongs: Pair<Long, Long>? = null
+
+    /** A DJ mix under way: the incoming song is the active slot, the outgoing one the standby. */
+    private var djRun: DjRun? = null
+
+    private class DjRun(val plan: MixPlan, val incomingTitle: String) {
+        /** When the incoming song's clock was first seen moving; 0 until then. */
+        var incomingMovingSinceMs = 0L
+        var lastShiftMs = 0L
+        var shifts = 0
+        val errors = ArrayDeque<Double>()
+        var smoothedErrorMs = 0.0
+        var lastLogMs = 0L
+    }
+
+    private var lastTransitionTickMs = 0L
+
+    /** Moves whichever kind of transition is due or under way on by one tick. */
+    private fun advanceTransition() {
+        val now = SystemClock.elapsedRealtime()
+        val elapsed = if (lastTransitionTickMs == 0L) 0L else (now - lastTransitionTickMs).coerceIn(0L, MAX_TICK_GAP_MS)
+        lastTransitionTickMs = now
+        advanceGlides(elapsed)
+        if (djRun != null) {
+            advanceDjMix(now)
+            return
+        }
+        if (fadeProgress == null && djMix && crossfadeMs > 0) {
+            val plan = currentMixPlan()
+            if (plan != null) {
+                followMixPlan(plan)
+                return
+            }
+        }
+        advanceCrossfade()
+    }
+
+    /**
+     * The plan for the current song into the next, made once both have been analysed and kept
+     * until either changes, the song is seeked or a setting it depends on changes. Null means a
+     * plain crossfade: no next song, songs that can't be analysed, or analysis still under way
+     * (which the crossfade takes over from if it isn't done in time).
+     */
+    private fun currentMixPlan(): MixPlan? {
+        val current = queueManager.current ?: return null
+        val next = queueManager.peekNext() ?: return null
+        if (queueManager.repeatMode == RepeatMode.ONE || sleepTimerManager.isStopAfterCurrentSongPending()) return null
+        // A long track that picks up part-way starts where it was left, not on a bar line.
+        if (!preloadable(next)) return null
+        analyses.prefetch(listOfNotNull(current, next, queueManager.visibleUpcoming(2).getOrNull(1)))
+
+        val songs = current.id to next.id
+        val position = player.currentPosition.toDouble()
+        val existing = mixPlan
+        if (mixPlanSongs == songs && (existing == null || position <= existing.outPrerollMs + MISSED_PLAN_SLACK_MS)) {
+            return existing
+        }
+        if (!analyses.isSettled(current) || !analyses.isSettled(next)) return null
+        val duration = player.duration.takeIf { it > 0 } ?: current.durationMs
+        val plan = MixPlanner.plan(
+            out = analyses.analysisFor(current),
+            outDurationMs = duration.toDouble(),
+            outPositionMs = position,
+            incoming = analyses.analysisFor(next),
+            maxBlendMs = crossfadeMs,
+            speed = player.playbackParameters.speed.toDouble(),
+        )
+        mixPlan = plan
+        mixPlanSongs = songs
+        if (plan == null) releaseTempo(active, beatMs = 0.0)
+        Log.i("PlaybackEngine", "Mix plan ${current.displayName} -> ${next.displayName}: $plan")
+        return plan
+    }
+
+    /** Before a planned mix starts: eases the outgoing song's tempo, and starts the mix on time. */
+    private fun followMixPlan(plan: MixPlan) {
+        val playerRef = active.player
+        if (!playerRef.isPlaying) return
+        val position = playerRef.currentPosition.toDouble()
+        if (plan.style == MixStyle.BEATMATCH && position >= plan.outRampStartMs) {
+            // The ramp takes over from any glide still running from the last mix.
+            active.glideTotalMs = 0.0
+            active.tempo.rate = plan.outgoingRate(position).toFloat()
+        }
+        if (position >= plan.outPrerollMs - mixStartLeadMs(plan) && position < plan.outEndMs) startDjMix(plan)
+    }
+
+    /**
+     * How early, in the outgoing song's time, to start the next song so its first sound comes
+     * about when planned: a player takes a moment to get going. The beat lock takes up the rest.
+     */
+    private fun mixStartLeadMs(plan: MixPlan): Double =
+        MIX_START_LATENCY_MS * player.playbackParameters.speed * plan.outMeetRate
+
+    /** Starts the next song on the standby slot as [plan] says, and hands "active" over to it. */
+    private fun startDjMix(plan: MixPlan) {
+        val next = queueManager.peekNext() ?: return
+        try {
+            val incoming = standby
+            val outgoing = active
+            val levels = plan.levels(-1.0)
+            incoming.resetMix()
+            incoming.mixChannel.gain = levels.inGain.toFloat()
+            incoming.mixChannel.cutoffHz = levels.inCutoffHz.toFloat()
+            incoming.tempo.rate = plan.inMeetRate.toFloat()
+            if (plan.inPrerollMs < 0) incoming.tempo.holdAtStart((-plan.inPrerollMs * 1000).toLong())
+            outgoing.mixChannel.gain = levels.outGain.toFloat()
+            outgoing.mixChannel.cutoffHz = levels.outCutoffHz.toFloat()
+            // Levels are the channel strips' job here, so the player volumes carry only ducking
+            // and the sleep timer.
+            incoming.fadeGain = 1f
+            outgoing.fadeGain = 1f
+            incoming.player.repeatMode = Player.REPEAT_MODE_OFF
+            rebuildingWindow = true
+            incoming.player.setMediaItem(mediaItemFor(next), plan.inPrerollMs.coerceAtLeast(0.0).toLong())
+            incoming.player.prepare()
+            applyVolumes()
+            incoming.player.play()
+            rebuildingWindow = false
+
+            // From here it's as a crossfade: the incoming song is what's playing, as far as the
+            // rest of the app is concerned. See startCrossfade.
+            rememberPosition(loadedSong, 0L, force = true)
+            queueManager.advanceToNext(currentShuffleSeed)
+            loadedSong = next
+            activeIndex = 1 - activeIndex
+            retriesForCurrentItem = 0
+            fadeProgress = 0f
+            djRun = DjRun(plan, next.displayName)
+            mixPlan = null
+            mixPlanSongs = null
+            _activePlayer.value = incoming.player
+            syncState()
+            Log.i("PlaybackEngine", "DJ mix into ${next.displayName}: ${plan.style}, ${plan.beats} beats")
+        } catch (t: Throwable) {
+            rebuildingWindow = false
+            Log.e("PlaybackEngine", "Could not start the DJ mix", t)
+            djRun = null
+            fadeProgress = null
+            stopStandby()
+        }
+    }
+
+    private fun advanceDjMix(now: Long) {
+        val run = djRun ?: return
+        val plan = run.plan
+        val outgoing = standby
+        val incoming = active
+        val outPlayer = outgoing.player
+        val outGone = outPlayer.playbackState == Player.STATE_ENDED || outPlayer.playbackState == Player.STATE_IDLE
+        val outPosition = outPlayer.currentPosition.toDouble()
+        val progress = if (outGone) 1.0 else plan.progress(outPosition)
+        if (progress >= 1.0) {
+            finishDjMix()
+            return
+        }
+        val levels = plan.levels(progress)
+        outgoing.mixChannel.gain = levels.outGain.toFloat()
+        outgoing.mixChannel.cutoffHz = levels.outCutoffHz.toFloat()
+        incoming.mixChannel.gain = levels.inGain.toFloat()
+        incoming.mixChannel.cutoffHz = levels.inCutoffHz.toFloat()
+        fadeProgress = progress.coerceIn(0.0, 1.0).toFloat()
+        if (plan.style == MixStyle.BEATMATCH) {
+            outgoing.tempo.rate = plan.outgoingRate(outPosition).toFloat()
+            lockBeats(run, outPosition, levels.inGain, now)
+        }
+    }
+
+    /**
+     * Keeps the incoming song's beats on the outgoing song's, as a DJ does by ear and with the
+     * pitch fader. The players' positions are compared every tick; a clear error early on, while
+     * the incoming song is still silent or nearly, is corrected at once by moving it (the median
+     * of several readings, since each position is only good to ten milliseconds or so), and what's
+     * left is pulled in by running it very slightly faster or slower.
+     */
+    private fun lockBeats(run: DjRun, outPosition: Double, inGain: Double, now: Long) {
+        val plan = run.plan
+        val inPlayer = active.player
+        val outPlayer = standby.player
+        if (!inPlayer.isPlaying || !outPlayer.isPlaying) {
+            // Buffering or paused: the readings start over once both are going again.
+            run.incomingMovingSinceMs = 0L
+            run.errors.clear()
+            return
+        }
+        val inPosition = inPlayer.currentPosition.toDouble()
+        // Still in its silent hold, where its clock stands still at the start.
+        if (inPosition <= plan.inPrerollMs.coerceAtLeast(0.0) + 1.0) return
+        if (run.incomingMovingSinceMs == 0L) {
+            run.incomingMovingSinceMs = now
+            return
+        }
+        // A player's clock takes a moment to settle after it starts.
+        if (now - run.incomingMovingSinceMs < CLOCK_SETTLE_MS) return
+
+        val errorMs = plan.beatError(outPosition, inPosition) * plan.inBeatMs
+        run.errors.addLast(errorMs)
+        if (run.errors.size > LOCK_READINGS) run.errors.removeFirst()
+        val sinceShift = now - run.lastShiftMs
+        // A shift is only heard - and only shows in the position - once the audio already
+        // buffered ahead of it has played.
+        if (sinceShift < SHIFT_SETTLE_MS) return
+
+        if (run.errors.size >= SHIFT_READINGS && run.shifts < MAX_LOCK_SHIFTS) {
+            val median = run.errors.toList().takeLast(SHIFT_READINGS).sorted()[SHIFT_READINGS / 2]
+            val threshold = if (inGain < QUIET_GAIN) LOCK_SHIFT_MIN_MS else RESCUE_SHIFT_MIN_MS
+            if (kotlin.math.abs(median) > threshold) {
+                active.tempo.shiftBy((-median * 1000).toLong())
+                run.shifts++
+                run.lastShiftMs = now
+                run.errors.clear()
+                run.smoothedErrorMs = 0.0
+                Log.i("PlaybackEngine", "Beat lock: moved ${run.incomingTitle} by ${"%.1f".format(-median)} ms")
+                return
+            }
+        }
+        // The fine correction follows the median of the last readings, slowly: each reading is off
+        // by the players' own clock jitter, and chasing that would only make the tempo wander.
+        if (run.errors.size < LOCK_READINGS) return
+        val median = run.errors.sorted()[LOCK_READINGS / 2]
+        run.smoothedErrorMs += (median - run.smoothedErrorMs) * LOCK_SMOOTHING
+        val error = run.smoothedErrorMs
+        val correction = if (kotlin.math.abs(error) < LOCK_DEADBAND_MS) {
+            0.0
+        } else {
+            (-error * LOCK_GAIN_PER_MS).coerceIn(-LOCK_MAX_CORRECTION, LOCK_MAX_CORRECTION)
+        }
+        active.tempo.rate = (plan.inMeetRate * (1 + correction)).toFloat()
+        if (now - run.lastLogMs >= 1_000L) {
+            run.lastLogMs = now
+            Log.d("PlaybackEngine", "Beat lock: ${"%.1f".format(errorMs)} ms off (median ${"%.1f".format(median)}), tempo ${"%.4f".format(active.tempo.rate)}")
+        }
+    }
+
+    /** The outgoing song has gone: the incoming one carries on alone, easing back to its own tempo. */
+    private fun finishDjMix() {
+        val run = djRun ?: return
+        djRun = null
+        fadeProgress = null
+        stopStandby()
+        active.mixChannel.gain = 1f
+        active.mixChannel.cutoffHz = MixChannelAudioProcessor.FLOOR_HZ
+        releaseTempo(active, run.plan.inBeatMs)
+        syncState()
+    }
+
+    /** Ends a mix early (a seek, a skip, an error), leaving the incoming song playing on its own. */
+    private fun cancelDjMix() {
+        val run = djRun ?: return
+        djRun = null
+        fadeProgress = null
+        stopStandby()
+        active.mixChannel.gain = 1f
+        active.mixChannel.cutoffHz = MixChannelAudioProcessor.FLOOR_HZ
+        releaseTempo(active, run.plan.inBeatMs)
+        applyVolumes()
+    }
+
+    private fun stopStandby() {
+        runCatching {
+            standby.player.stop()
+            standby.player.clearMediaItems()
+        }
+        standby.resetMix()
+        slots.forEach { it.fadeGain = 1f }
+        applyVolumes()
+    }
+
+    /** Starts [slot]'s tempo easing back to normal, if it isn't there already. */
+    private fun releaseTempo(slot: PlayerSlot, beatMs: Double) {
+        val rate = slot.tempo.rate.toDouble()
+        if (kotlin.math.abs(rate - 1.0) < 1e-4) {
+            slot.tempo.rate = 1f
+            slot.glideTotalMs = 0.0
+            return
+        }
+        slot.glideFrom = rate
+        slot.glideElapsedMs = 0.0
+        slot.glideTotalMs = MixPlanner.glideMs(rate, beatMs, slot.player.playbackParameters.speed.toDouble())
+    }
+
+    /** Moves each easing tempo on by [elapsedMs], counting only time spent playing. */
+    private fun advanceGlides(elapsedMs: Long) {
+        for (slot in slots) {
+            if (slot.glideTotalMs <= 0.0) continue
+            if (slot.player.isPlaying) slot.glideElapsedMs += elapsedMs
+            val t = (slot.glideElapsedMs / slot.glideTotalMs).coerceIn(0.0, 1.0)
+            val eased = t * t * (3 - 2 * t)
+            slot.tempo.rate = (slot.glideFrom + (1.0 - slot.glideFrom) * eased).toFloat()
+            if (t >= 1.0) {
+                slot.tempo.rate = 1f
+                slot.glideTotalMs = 0.0
+            }
+        }
+    }
+
     // --- Crossfade ----------------------------------------------------------------------------
 
     /**
      * Drives the overlap. Called every tick: starts a fade once the active track is within
-     * [crossfadeMs] of its end, then advances both gains together until the incoming track has
-     * fully replaced the outgoing one.
-     *
-     * Progress accumulates per tick rather than being derived from wall-clock time, so pausing
-     * mid-fade holds it in place instead of skipping ahead.
+     * [crossfadeMs] of its end, then sets both gains from how much of the outgoing track is left
+     * (see [crossfadeProgress]) until the incoming track has fully replaced it.
      */
     private fun advanceCrossfade() {
         val fadeMs = crossfadeMs
@@ -522,19 +943,24 @@ class PlaybackEngine private constructor(context: Context) {
             return
         }
 
-        if (!active.player.isPlaying && !standby.player.isPlaying) return // paused mid-fade
-
-        val next = progress + TICK_MS.toFloat() / activeFadeDurationMs.coerceAtLeast(1)
+        val outgoing = standby.player
+        val outgoingDuration = outgoing.duration
+        // Nothing left to read a position from - played out, or failed - means it's over.
+        val outgoingRemaining = if (outgoingDuration <= 0 || outgoing.playbackState == Player.STATE_ENDED || outgoing.playbackState == Player.STATE_IDLE) {
+            0L
+        } else {
+            outgoingDuration - outgoing.currentPosition
+        }
+        val next = crossfadeProgress(activeFadeLengthMs, outgoingRemaining, previous = progress)
         if (next >= 1f) {
             finishCrossfade()
             return
         }
         fadeProgress = next
-        // Equal-power rather than linear: two linearly-crossfaded tracks sum to a dip in loudness
-        // through the middle of the overlap, which is audible as the transition "sagging".
         // The incoming track is already the active slot by this point - see startCrossfade.
-        active.fadeGain = kotlin.math.sin(next * (Math.PI / 2)).toFloat()
-        standby.fadeGain = kotlin.math.cos(next * (Math.PI / 2)).toFloat()
+        val (incomingGain, outgoingGain) = crossfadeGains(next)
+        active.fadeGain = incomingGain
+        standby.fadeGain = outgoingGain
         applyVolumes()
     }
 
@@ -546,14 +972,16 @@ class PlaybackEngine private constructor(context: Context) {
         if (sleepTimerManager.isStopAfterCurrentSongPending()) return false
         val duration = playerRef.duration
         if (duration <= 0) return false
+        // In the track's own time, so the overlap heard is as long as the setting at any speed.
+        val fadeMedia = crossfadeMediaLengthMs(fadeMs, playerRef.playbackParameters.speed)
         // A track has to be comfortably longer than the overlap for one to make sense.
-        if (duration < fadeMs * 2L) return false
+        if (duration < fadeMedia * 2L) return false
         if (queueManager.peekNext() == null) return false
         val remaining = duration - playerRef.currentPosition
         // Too little left to fade across - which is what seeking to the very end leaves - so let
         // the track simply finish instead of starting an overlap it can't complete.
         if (remaining < MIN_CROSSFADE_MS) return false
-        return remaining <= fadeMs
+        return remaining <= fadeMedia
     }
 
     /**
@@ -571,8 +999,9 @@ class PlaybackEngine private constructor(context: Context) {
         try {
             // Never longer than what's actually left of the outgoing track, so the fade finishes
             // as that track does rather than running on past its end.
-            val remaining = (active.player.duration - active.player.currentPosition).coerceAtLeast(0)
-            activeFadeDurationMs = minOf(crossfadeMs.toLong(), remaining).toInt()
+            val outgoing = active.player
+            val remaining = (outgoing.duration - outgoing.currentPosition).coerceAtLeast(0)
+            activeFadeLengthMs = minOf(crossfadeMediaLengthMs(crossfadeMs, outgoing.playbackParameters.speed), remaining)
 
             val incoming = standby
             incoming.fadeGain = 0f
@@ -615,6 +1044,10 @@ class PlaybackEngine private constructor(context: Context) {
 
     /** Aborts an in-flight overlap, leaving the currently active track playing on its own. */
     private fun cancelCrossfade() {
+        if (djRun != null) {
+            cancelDjMix()
+            return
+        }
         if (fadeProgress == null) return
         fadeProgress = null
         runCatching {
@@ -678,6 +1111,8 @@ class PlaybackEngine private constructor(context: Context) {
         // any edge case in the math above ever producing something it would reject.
         val safeSpeed = speed.takeIf { it.isFinite() && it > 0f } ?: 1f
         val safePitch = finalPitch.takeIf { it.isFinite() && it > 0f } ?: 1f
+        // A DJ mix's real-time lengths depend on the speed; it's planned again.
+        if (djRun == null) mixPlanSongs = null
         slots.forEach { slot ->
             try {
                 slot.player.playbackParameters = PlaybackParameters(safeSpeed, safePitch)
@@ -708,24 +1143,124 @@ class PlaybackEngine private constructor(context: Context) {
         syncState()
     }
 
-    fun playSongs(songs: List<Song>, label: String, order: PlayOrder, startIndex: Int? = null) {
+    /** @param sourceKey which list [songs] is - see [listSourceKey] - or null if it isn't one. */
+    fun playSongs(songs: List<Song>, label: String, order: PlayOrder, startIndex: Int? = null, sourceKey: String? = null) {
         // Pressing play on a playlist that's still scanning, or genuinely empty, would otherwise
         // replace whatever is playing with nothing and stop it.
         if (songs.isEmpty()) return
-        queueManager.startPlaylist(songs, label, order, currentShuffleSeed, startIndex)
+        setAsideShuffle()
+        shuffleStartedFrom = null
+        queueManager.startPlaylist(songs, label, order, currentShuffleSeed, startIndex, sourceKey)
         loadAndPlay(queueManager.current)
     }
 
-    fun playSpecificSong(songs: List<Song>, label: String, song: Song) {
+    suspend fun playSpecificSong(songs: List<Song>, label: String, song: Song, sourceKey: String? = null) {
         // Tapping the song that's already loaded carries on with it rather than starting it over.
         if (queueManager.current?.id == song.id && queueManager.playlistLabel == label) {
             if (!player.playWhenReady) play()
             return
         }
+        // A list keeping its shuffle carries on with it from the tapped song, rather than dealing
+        // a new order around it and forgetting what had played.
+        if (preserveShuffleProgress && sourceKey != null && queueManager.playOrder == PlayOrder.SHUFFLED) {
+            if (queueManager.sourceKey == sourceKey) {
+                queueManager.addNewSongs(songs, currentShuffleSeed)
+                jumpWithinShuffle(song)
+                return
+            }
+            val saved = savedShuffles.take(sourceKey)
+            if (saved != null && resumeSavedShuffle(songs, label, saved)) {
+                jumpWithinShuffle(song)
+                return
+            }
+        }
         val index = songs.indexOfFirst { it.id == song.id }.coerceAtLeast(0)
         // Keeps whichever order is in use: with shuffle on, the tapped song plays and the rest
         // follow shuffled. Always starting in order switched shuffle off on every tap.
-        playSongs(songs, label, queueManager.playOrder, startIndex = index)
+        playSongs(songs, label, queueManager.playOrder, startIndex = index, sourceKey = sourceKey)
+    }
+
+    /**
+     * A list's Shuffle button. With [preserveShuffleProgress] on, every list keeps its own shuffle
+     * while other things play: pressing Shuffle on it again picks up the same order at the song
+     * it was left on. A second press while that shuffle is still playing starts a new one - so
+     * pressing twice is how to get a genuinely new order.
+     *
+     * @param newSeed a fresh seed for a new shuffle, or null to keep the one in use (it's locked).
+     */
+    suspend fun shufflePlay(songs: List<Song>, label: String, sourceKey: String?, newSeed: suspend () -> String?) {
+        if (songs.isEmpty()) return
+        if (preserveShuffleProgress && sourceKey != null && shuffleStartedFrom != sourceKey) {
+            val alreadyPlaying = queueManager.sourceKey == sourceKey && queueManager.playOrder == PlayOrder.SHUFFLED
+            if (alreadyPlaying) {
+                // Already the queue - restored after a restart, say, or shuffled from the Play
+                // screen. Carries on; a finished one falls through to a new shuffle.
+                if (queueManager.peekNext() != null) {
+                    if (queueManager.addNewSongs(songs, currentShuffleSeed)) syncUpcomingWindow()
+                    shuffleStartedFrom = sourceKey
+                    if (!shouldKeepPlaying()) play()
+                    syncState()
+                    return
+                }
+            } else {
+                val saved = savedShuffles.take(sourceKey)
+                if (saved != null && resumeSavedShuffle(songs, label, saved)) {
+                    shuffleStartedFrom = sourceKey
+                    loadAndPlay(queueManager.current)
+                    return
+                }
+            }
+        }
+        newSeed()?.let { currentShuffleSeed = it }
+        playSongs(songs, label, PlayOrder.SHUFFLED, sourceKey = sourceKey)
+        // Pressed again on its own list, the old shuffle was just set aside - but it's been
+        // replaced, not left for something else, and would have come back after the new one was
+        // turned off.
+        sourceKey?.let(savedShuffles::remove)
+        shuffleStartedFrom = sourceKey
+    }
+
+    /** Swaps the queue for [saved], setting aside the shuffle it replaces; false if [saved] has nothing left. */
+    private fun resumeSavedShuffle(songs: List<Song>, label: String, saved: SavedShuffle): Boolean {
+        // Set aside first, while it's still the queue. If [saved] turns out to have nothing left,
+        // whatever starts instead sets the same shuffle aside again, which changes nothing.
+        setAsideShuffle()
+        if (!queueManager.resumeShuffle(songs, label, saved, currentShuffleSeed)) return false
+        shuffleStartedFrom = null
+        return true
+    }
+
+    private fun jumpWithinShuffle(song: Song) {
+        shuffleStartedFrom = null
+        queueManager.jumpTo(song)
+        loadAndPlay(song)
+    }
+
+    /**
+     * Keeps the queue's shuffle for its list, just before something else replaces it. A finished
+     * one is forgotten instead: its list's next shuffle should be a new one, not the last song again.
+     */
+    private fun setAsideShuffle() {
+        if (!preserveShuffleProgress || queueManager.playOrder != PlayOrder.SHUFFLED) return
+        val key = queueManager.sourceKey ?: return
+        val progress = queueManager.shuffleProgress()
+        if (progress != null) savedShuffles.put(progress) else savedShuffles.remove(key)
+    }
+
+    /** The list being shuffled, if one is; see [addNewSongs]. */
+    fun shuffledSourceKey(): String? = queueManager.sourceKey?.takeIf { queueManager.playOrder == PlayOrder.SHUFFLED }
+
+    /**
+     * Deals songs that have joined [sourceKey] - a rescan, files added, a new favourite or tag -
+     * into the songs still to come, if that list's shuffle is what's playing. Without this they
+     * only joined once the shuffle was set aside and picked up again.
+     */
+    fun addNewSongs(sourceKey: String, songs: List<Song>) {
+        if (!preserveShuffleProgress || queueManager.sourceKey != sourceKey) return
+        if (queueManager.addNewSongs(songs, currentShuffleSeed)) {
+            syncUpcomingWindow()
+            syncState()
+        }
     }
 
     fun togglePlayPause() {
@@ -744,9 +1279,18 @@ class PlaybackEngine private constructor(context: Context) {
         player.playWhenReady &&
             (player.playbackState == Player.STATE_READY || player.playbackState == Player.STATE_BUFFERING)
 
-    /** Resumes playback, re-preparing first if an earlier failure left the player idle. */
+    /**
+     * Resumes playback, re-preparing first if an earlier failure left the player idle. Not while
+     * audio focus is refused or put off - see [gainFocusToStart].
+     */
     fun play() {
-        focusController.requestFocus()
+        // Started before the saved queue was read back - a headset's play button starting the
+        // app from cold. Played once it's there, rather than pressing play on nothing.
+        if (queueManager.current == null && !restoreAttempted) {
+            playWhenRestored = true
+            return
+        }
+        if (!gainFocusToStart()) return
         // The fade that ended the last sleep timer would otherwise leave this silent until the
         // next tick put the volume back.
         updateSleepFade()
@@ -762,12 +1306,29 @@ class PlaybackEngine private constructor(context: Context) {
     }
 
     /**
+     * Asks for audio focus before playback starts, and says whether it may. Refused, the music
+     * stays paused, saying why; put off, it starts by itself once focus arrives (the focus
+     * controller's onDelayedGain) unless it's paused before then.
+     */
+    private fun gainFocusToStart(): Boolean {
+        when (focusController.requestFocus()) {
+            FocusResult.GRANTED -> return true
+            FocusResult.DELAYED -> notice = WAITING_FOR_FOCUS
+            FocusResult.DENIED -> notice = "Can't play while another app, such as a call, has the audio"
+        }
+        syncState()
+        return false
+    }
+
+    /**
      * Stops playback deliberately - the user, the sleep timer, or an output device change. Any
      * pending auto-resume is cancelled, so an interruption that arrives while stopped can't start
      * the music back up when it ends.
      */
     fun pause() {
         focusController.onPlaybackPausedDeliberately()
+        // It won't start by itself any more, so it mustn't say it will.
+        if (notice == WAITING_FOR_FOCUS) notice = null
         pausePlayers()
         rememberPosition(loadedSong, player.currentPosition, force = true)
         // Saved straight away rather than at the next periodic save: a pause is exactly the point
@@ -782,6 +1343,12 @@ class PlaybackEngine private constructor(context: Context) {
     fun seekTo(positionMs: Long) {
         // Seeking away from the tail of a track makes an in-flight overlap meaningless.
         cancelCrossfade()
+        // A DJ mix planned from where the song was is planned again from where it is now, and a
+        // tempo ramp already under way eases back.
+        if (mixPlanSongs != null) {
+            mixPlanSongs = null
+            releaseTempo(active, beatMs = 0.0)
+        }
         val duration = player.duration
         // Held just short of the end: landing exactly on it ends the track and advances the queue,
         // so dragging a seek bar fully to the right skipped the song - and with the finger still
@@ -814,11 +1381,22 @@ class PlaybackEngine private constructor(context: Context) {
     suspend fun restoreIfNeeded(
         lookup: suspend (List<Long>) -> List<Song>,
         restartFromBeginning: Boolean,
+    ) = restoreLock.withLock {
+        // Locked: the media service (started by a headset button) and the UI can both ask at
+        // once, and the second has to wait for the first rather than restore all over again.
+        if (restoreAttempted) return@withLock
+        restore(lookup, restartFromBeginning)
+    }
+
+    private val restoreLock = Mutex()
+
+    private suspend fun restore(
+        lookup: suspend (List<Long>) -> List<Song>,
+        restartFromBeginning: Boolean,
     ) {
-        if (restoreAttempted) return
         try {
             if (queueManager.current != null) return
-            val saved = runCatching { stateRepository.loadQueue() }.getOrNull() ?: return
+            val saved = runSuspendCatching { stateRepository.loadQueue() }.getOrNull() ?: return
             val ids = buildSet {
                 addAll(saved.poolSongIds)
                 addAll(saved.queuedSongIds)
@@ -838,7 +1416,7 @@ class PlaybackEngine private constructor(context: Context) {
             val resumeAt = if (savedCurrent == null || restartFromBeginning) {
                 0L
             } else {
-                runCatching { stateRepository.loadPosition() }.getOrNull()
+                runSuspendCatching { stateRepository.loadPosition() }.getOrNull()
                     ?.takeIf { it.songId == savedCurrent.id }
                     ?.positionMs ?: 0L
             }
@@ -854,6 +1432,7 @@ class PlaybackEngine private constructor(context: Context) {
                 played = saved.historySongIds.mapNotNull(byId::get),
                 repeat = repeat,
                 order = if (saved.shuffled) PlayOrder.SHUFFLED else PlayOrder.SEQUENTIAL,
+                sourceKey = saved.sourceKey,
             )
             // If the song that was playing has since been deleted, carry on from whatever was due
             // next rather than restoring nothing at all.
@@ -865,10 +1444,16 @@ class PlaybackEngine private constructor(context: Context) {
             loadAndPlay(current, autoPlay = false)
             if (resumeAt > 0L) runCatching { player.seekTo(resumeAt) }
             syncState()
+        } catch (e: CancellationException) {
+            throw e
         } catch (t: Throwable) {
             Log.e("PlaybackEngine", "Could not restore the saved queue", t)
         } finally {
             restoreAttempted = true
+            if (playWhenRestored) {
+                playWhenRestored = false
+                if (queueManager.current != null) play()
+            }
         }
     }
 
@@ -919,9 +1504,10 @@ class PlaybackEngine private constructor(context: Context) {
                     historySongIds = queueManager.historySnapshot().map { it.id },
                     repeatMode = queueManager.repeatMode.name,
                     shuffled = queueManager.playOrder == PlayOrder.SHUFFLED,
+                    sourceKey = queueManager.sourceKey,
                     externalSongs = savableExternalSongs(),
                 )
-                runCatching { stateRepository.saveQueue(snapshot) }
+                runSuspendCatching { stateRepository.saveQueue(snapshot) }
                     .onSuccess { lastSavedQueueVersion = version }
                     .onFailure { Log.w("PlaybackEngine", "Could not save the queue", it) }
             }
@@ -930,7 +1516,7 @@ class PlaybackEngine private constructor(context: Context) {
             rememberPosition(loadedSong, player.currentPosition, force = false)
             val position = SavedPosition(current.id, player.currentPosition.coerceAtLeast(0L))
             if (position != lastSavedPosition) {
-                runCatching { stateRepository.savePosition(position) }
+                runSuspendCatching { stateRepository.savePosition(position) }
                     .onSuccess { lastSavedPosition = position }
                     .onFailure { Log.w("PlaybackEngine", "Could not save the position", it) }
             }
@@ -1119,7 +1705,39 @@ class PlaybackEngine private constructor(context: Context) {
         loadAndPlay(queueManager.advanceToNext(currentShuffleSeed), autoPlay = keepPlaying)
     }
 
-    fun setShuffleEnabled(enabled: Boolean) {
+    /** Mirrors the shuffle seed lock, for [switchShuffle]; set by the ViewModel, which reads the settings. */
+    var shuffleSeedLocked: Boolean = false
+
+    /** Saves a seed picked by [switchShuffle]; set by the ViewModel, which owns the settings. */
+    var onShuffleSeedGenerated: ((String) -> Unit)? = null
+
+    private val shuffleObservers = mutableListOf<(Boolean) -> Unit>()
+
+    /** Told whenever shuffle goes on or off, for media controllers showing it; main thread only. */
+    fun addShuffleObserver(observer: (Boolean) -> Unit) {
+        shuffleObservers += observer
+    }
+
+    fun removeShuffleObserver(observer: (Boolean) -> Unit) {
+        shuffleObservers -= observer
+    }
+
+    /**
+     * The shuffle switch, from the Play screen or a media controller (a car, a watch). Turned on,
+     * it gets a new seed - unless the seed is locked - so off and on again is a new order rather
+     * than the same one dealt again.
+     */
+    fun switchShuffle(enabled: Boolean) {
+        val seed = if (enabled && !shuffleSeedLocked) SettingsRepository.generateShuffleSeed() else null
+        setShuffleEnabled(enabled, seed)
+        seed?.let { onShuffleSeedGenerated?.invoke(it) }
+    }
+
+    /** @param newSeed a fresh seed to shuffle with, so turning shuffle off and on again reshuffles. */
+    fun setShuffleEnabled(enabled: Boolean, newSeed: String? = null) {
+        newSeed?.let { currentShuffleSeed = it }
+        // Whatever the list's Shuffle button started is no longer the queue's order.
+        shuffleStartedFrom = null
         queueManager.setShuffleEnabled(enabled, currentShuffleSeed)
         // Without this the player kept the song preloaded under the old order and rolled into it,
         // while the queue moved on to the first song of the new order - playing one song while
@@ -1155,14 +1773,20 @@ class PlaybackEngine private constructor(context: Context) {
             // Leaving a long track part-way through: note where, for next time.
             if (loadedSong?.id != song.id) rememberPosition(loadedSong, player.currentPosition, force = true)
             loadedSong = song
+            // Whatever a DJ mix left on this deck - a tempo easing back, a filter - goes; the new
+            // song plays as it is.
+            active.resetMix()
+            mixPlanSongs = null
             retriesForCurrentItem = 0
             lastError = null
             rebuildingWindow = true
-            if (autoPlay) focusController.requestFocus()
+            val start = autoPlay && gainFocusToStart()
             player.setMediaItems(windowFor(song), 0, resumePositionFor(song))
             applyRepeatModeToPlayer()
             player.prepare()
-            if (autoPlay) player.play()
+            // Loaded but held when focus didn't come: the new song mustn't roll on with the old
+            // one's play state, over a phone call.
+            if (start) player.play() else if (autoPlay) player.pause()
             rebuildingWindow = false
             applyVolumes()
             syncState()
@@ -1259,6 +1883,8 @@ class PlaybackEngine private constructor(context: Context) {
     }
 
     fun syncState() {
+        val shuffleOn = queueManager.playOrder == PlayOrder.SHUFFLED
+        if (shuffleOn != _uiState.value.shuffleOn) shuffleObservers.toList().forEach { it(shuffleOn) }
         _uiState.value = PlaybackUiState(
             currentSong = queueManager.current,
             // Only while something is loaded: once a playlist's songs are all gone (it was deleted
@@ -1271,7 +1897,7 @@ class PlaybackEngine private constructor(context: Context) {
             durationMs = player.duration.takeIf { it > 0 }
                 ?: queueManager.current?.durationMs?.coerceAtLeast(0) ?: 0L,
             repeatMode = queueManager.repeatMode,
-            shuffleOn = queueManager.playOrder == PlayOrder.SHUFFLED,
+            shuffleOn = shuffleOn,
             upcoming = queueManager.visibleUpcoming(),
             error = lastError,
             notice = notice,
@@ -1279,6 +1905,8 @@ class PlaybackEngine private constructor(context: Context) {
     }
 
     companion object {
+        private const val WAITING_FOR_FOCUS = "Will play once the other audio, such as a call, ends"
+
         /** Tick while a crossfade is running, which moves the gains in small steps. */
         private const val TICK_MS = 50L
 
@@ -1296,6 +1924,33 @@ class PlaybackEngine private constructor(context: Context) {
 
         /** How far before the end of a track a seek is capped; see [seekTo]. */
         private const val SEEK_END_GUARD_MS = 500L
+
+        /** The longest gap between ticks a tempo glide counts; more means the app was asleep. */
+        private const val MAX_TICK_GAP_MS = 2_000L
+
+        /** How far past a planned mix's start the plan still stands before it's made again. */
+        private const val MISSED_PLAN_SLACK_MS = 250.0
+
+        /** Roughly how long a player takes from play() to its first sound; see [mixStartLeadMs]. */
+        private const val MIX_START_LATENCY_MS = 120.0
+
+        // The beat lock; see lockBeats.
+        private const val CLOCK_SETTLE_MS = 300L
+        private const val SHIFT_SETTLE_MS = 900L
+        private const val LOCK_READINGS = 9
+        private const val SHIFT_READINGS = 7
+        private const val MAX_LOCK_SHIFTS = 4
+
+        /** Below this level the incoming song is quiet enough to be moved unheard. */
+        private const val QUIET_GAIN = 0.3
+        private const val LOCK_SHIFT_MIN_MS = 4.0
+
+        /** Once it's audible, only an error this big - a clear flam - is worth a jump. */
+        private const val RESCUE_SHIFT_MIN_MS = 35.0
+        private const val LOCK_SMOOTHING = 0.15
+        private const val LOCK_DEADBAND_MS = 3.0
+        private const val LOCK_GAIN_PER_MS = 0.0003
+        private const val LOCK_MAX_CORRECTION = 0.008
 
         /** Below this much remaining, a track just finishes rather than starting an overlap. */
         private const val MIN_CROSSFADE_MS = 1_500L

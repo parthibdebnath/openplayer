@@ -8,6 +8,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Log
 import io.github.parthibdebnath.openplayer.data.model.Song
+import io.github.parthibdebnath.openplayer.util.stableHash64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -27,7 +28,14 @@ val Song.isExternal: Boolean get() = playlistId == EXTERNAL_PLAYLIST_ID
  */
 object ExternalSongs {
 
-    fun idFor(uri: Uri): Long = -((uri.toString().hashCode().toLong() and 0x7FFF_FFFFL) + 1L)
+    fun idFor(uri: Uri): Long = idFor(uri.toString())
+
+    /**
+     * Always negative, from a 64-bit hash: the 31 bits of String.hashCode left two different
+     * files opened from other apps a real chance of sharing an id, and so of being treated as one
+     * song in the queue. Saved queues keep the ids they were saved with, so older ones still match.
+     */
+    fun idFor(uri: String): Long = -(stableHash64(uri) ushr 1) - 1L
 
     /**
      * Reads what's needed to play and show [uri], or null if it can't be read. Asks to keep access

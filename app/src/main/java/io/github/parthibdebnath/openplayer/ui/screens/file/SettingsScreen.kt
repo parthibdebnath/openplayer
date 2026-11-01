@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -135,18 +136,21 @@ fun SettingsScreen(
         SectionHeading("Playback")
 
         ToggleRow(
-            label = "Notification media controls",
+            label = "Keep controls in the notification when paused",
             checked = settings.notificationMediaControl,
             onToggle = { viewModel.setNotificationMediaControl(it) },
             bold = false,
         )
+        // Music playing always has its notification: Android requires one to keep playback going
+        // in the background. What's left to choose is whether it outlasts a pause.
+        SettingNote("While music plays, its controls are always in the notification. Off: they go away when you pause. Headset buttons work either way.")
         // A denied notification permission can't be re-requested from inside the app - Android
         // only shows that dialog once - so without this the controls stay invisible with no
         // explanation and no way back.
-        if (notificationsBlocked && settings.notificationMediaControl) {
+        if (notificationsBlocked) {
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "Notifications are blocked for this app, so media controls can't be shown. Tap to open system settings.",
+                text = "Notifications are switched off for this app, so the media controls are hidden. Tap to open system settings.",
                 style = interTextStyle(14, bold = false),
                 color = LocalAppColors.current.onBackground.copy(alpha = 0.6f),
                 modifier = Modifier
@@ -215,6 +219,14 @@ fun SettingsScreen(
         SettingNote("Tracks of 20 minutes or more pick up where you left off.")
         Spacer(Modifier.height(34.dp))
         ToggleRow(
+            label = "Keep each playlist's shuffle",
+            checked = settings.preserveShuffleProgress,
+            onToggle = { viewModel.setPreserveShuffleProgress(it) },
+            bold = false,
+        )
+        SettingNote("Shuffling a playlist again picks up the same order where you left it, even after playing something else. Press shuffle twice for a new order.")
+        Spacer(Modifier.height(34.dp))
+        ToggleRow(
             label = "Skip silence",
             checked = settings.skipSilence,
             onToggle = { viewModel.setSkipSilence(it) },
@@ -240,10 +252,22 @@ fun SettingsScreen(
         Spacer(Modifier.height(34.dp))
         Text(text = "Crossfade", style = interTextStyle(20, bold = false), color = LocalAppColors.current.onBackground)
         Spacer(Modifier.height(8.dp))
+        // Held here while the slider moves, heard straight away, and saved once on release: saving
+        // each step rewrote the settings file dozens of times a drag. Let go once the saved value
+        // has caught up, so the readout doesn't flick back to the old one in between.
+        var crossfadeDraft by remember { mutableStateOf<Int?>(null) }
+        LaunchedEffect(settings.crossfadeMs, crossfadeDraft) {
+            if (crossfadeDraft == settings.crossfadeMs) crossfadeDraft = null
+        }
+        val crossfadeShown = crossfadeDraft ?: settings.crossfadeMs
         Row(verticalAlignment = Alignment.CenterVertically) {
             CustomSlider(
-                value = settings.crossfadeMs.toFloat(),
-                onValueChange = { viewModel.setCrossfadeMs(it.toInt()) },
+                value = crossfadeShown.toFloat(),
+                onValueChange = {
+                    crossfadeDraft = it.toInt()
+                    viewModel.previewCrossfadeMs(it.toInt())
+                },
+                onValueChangeFinished = { crossfadeDraft?.let(viewModel::setCrossfadeMs) },
                 valueRange = CROSSFADE_MIN_MS.toFloat()..CROSSFADE_MAX_MS.toFloat(),
                 steps = CROSSFADE_STEPS,
                 modifier = Modifier.weight(1f),
@@ -252,7 +276,7 @@ fun SettingsScreen(
             // Fixed width: letting this size to its text made the slider beside it grow and
             // shrink as the number changed length while dragging.
             Text(
-                text = if (settings.crossfadeMs == 0) "Off" else "%.1f s".format(settings.crossfadeMs / 1000f),
+                text = if (crossfadeShown == 0) "Off" else "%.1f s".format(crossfadeShown / 1000f),
                 style = interTextStyle(16, bold = false),
                 color = LocalAppColors.current.onBackground.copy(alpha = 0.6f),
                 textAlign = TextAlign.End,
@@ -260,6 +284,23 @@ fun SettingsScreen(
                 modifier = Modifier.width(72.dp),
             )
         }
+        Spacer(Modifier.height(34.dp))
+        ToggleRow(
+            label = "DJ mix",
+            checked = settings.djMix,
+            onToggle = { viewModel.setDjMix(it) },
+            bold = false,
+        )
+        SettingNote(
+            if (crossfadeShown == 0) {
+                "Turn crossfade on to use it. Songs are then mixed like a DJ would: tempos and beats matched, " +
+                    "basslines swapped, one song's intro laid over the other's outro."
+            } else {
+                "Songs are mixed like a DJ would: tempos and beats matched, basslines swapped, one song's " +
+                    "intro laid over the other's outro, for up to the crossfade length. Songs without a steady " +
+                    "beat are faded smoothly instead. Each song is analysed the first time it comes up."
+            },
+        )
         Spacer(Modifier.height(34.dp))
 
         SectionHeading("Privacy")
