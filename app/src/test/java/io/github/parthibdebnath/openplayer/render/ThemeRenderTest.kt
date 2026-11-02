@@ -219,7 +219,10 @@ class ThemeRenderTest {
         // By its click action rather than a touch: a skin may keep a tab out of sight (the XMB's
         // categories slide off the edge), and touch can't reach it there.
         compose.onAllNodes(hasTestTag("tab:$name")).onFirstOrNull()?.let {
-            it.performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
+            // The tab already showing may have nothing to click.
+            if (androidx.compose.ui.semantics.SemanticsActions.OnClick in it.fetchSemanticsNode().config) {
+                it.performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
+            }
             return
         }
         compose.onAllNodes(hasText(name)).onFirstOrNull()?.performClick()

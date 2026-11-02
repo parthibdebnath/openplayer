@@ -2,6 +2,7 @@ package io.github.parthibdebnath.openplayer.ui.skin
 
 import io.github.parthibdebnath.openplayer.data.settings.UiTheme
 import io.github.parthibdebnath.openplayer.ui.skin.aqua.AquaSkin
+import io.github.parthibdebnath.openplayer.ui.skin.blades.BladesSkin
 import io.github.parthibdebnath.openplayer.ui.skin.classic.ClassicSkin
 import io.github.parthibdebnath.openplayer.ui.skin.ipod.IpodSkin
 import io.github.parthibdebnath.openplayer.ui.skin.luna.LunaSkin
@@ -19,5 +20,6 @@ fun skinFor(theme: UiTheme): Skin? = when (theme) {
     UiTheme.IPOD -> IpodSkin
     UiTheme.METRO -> MetroSkin
     UiTheme.XMB -> XmbSkin
+    UiTheme.BLADES -> BladesSkin
     else -> null
 }
