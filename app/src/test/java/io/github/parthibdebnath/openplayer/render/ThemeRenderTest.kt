@@ -124,8 +124,11 @@ class ThemeRenderTest {
         settle(700)
         println("THEMERENDER ${theme.name} menu items found: " + compose.onAllNodes(hasText("Play next")).fetchSemanticsNodes().size)
         shot(dir, "5_song_menu")
-        // Out of the menu again.
-        pressBack()
+        // A confirmation: removing a song asks first.
+        compose.onAllNodes(hasText("Remove")).onFirstOrNull()?.performClick()
+        settle(800)
+        shot(dir, "5b_confirm")
+        tapIfPresent("dialog:dismiss")
         settle(500)
 
         goToTab("SFX")
@@ -142,6 +145,15 @@ class ThemeRenderTest {
         tapIfPresent("nav:settings")
         settle(900)
         shot(dir, "8_settings")
+
+        // The frame's own menu (a Start menu, an Apple menu...), where the skin has one.
+        if (compose.onAllNodes(hasTestTag("frame:menu")).fetchSemanticsNodes().isNotEmpty()) {
+            tapIfPresent("frame:menu")
+            settle(700)
+            shot(dir, "9_frame_menu")
+            pressBack()
+            settle(500)
+        }
         // Back to the playlists for the next theme.
         tapIfPresent("nav:settings")
         settle(400)

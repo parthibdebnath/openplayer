@@ -233,7 +233,7 @@ object AquaSkin : Skin() {
             // A gel drop in place of the Apple: this is openplayer's own menu.
             Canvas(Modifier.size(14.dp)) { drawGelCircle(center, size.minDimension / 2f, Gels.blue, shadow = false) }
             Spacer(Modifier.width(12.dp))
-            MenuTitle("openplayer", bold = true, items = listOf(
+            MenuTitle("openplayer", bold = true, tag = "frame:menu", items = listOf(
                 ContextMenuItem("Preferences…", onClick = model.onOpenSettings),
             ))
             MenuTitle("Controls", items = listOf(
@@ -268,7 +268,7 @@ object AquaSkin : Skin() {
     )
 
     @Composable
-    private fun MenuTitle(title: String, items: List<ContextMenuItem>, bold: Boolean = false) {
+    private fun MenuTitle(title: String, items: List<ContextMenuItem>, bold: Boolean = false, tag: String? = null) {
         var open by remember { mutableStateOf(false) }
         Box {
             Text(
@@ -276,6 +276,7 @@ object AquaSkin : Skin() {
                 style = menuText(bold),
                 color = if (open) Color.White else Color.Black,
                 modifier = Modifier
+                    .then(if (tag != null) Modifier.testTag(tag) else Modifier)
                     .then(if (open) Modifier.background(AquaColors.selection) else Modifier)
                     .skinTap { open = true }
                     .padding(horizontal = 9.dp, vertical = 3.dp),
@@ -776,7 +777,7 @@ object AquaSkin : Skin() {
                 val ok = remember { MutableInteractionSource() }
                 val cancelPressed by pressedState(cancel)
                 val okPressed by pressedState(ok)
-                PushButton("Cancel", default = false, pressed = cancelPressed, modifier = Modifier.skinClick(cancel) { onDismiss() })
+                PushButton("Cancel", default = false, pressed = cancelPressed, modifier = Modifier.testTag("dialog:dismiss").skinClick(cancel) { onDismiss() })
                 PushButton("OK", default = true, pressed = okPressed, modifier = Modifier.skinClick(ok) { onConfirm() })
             }
         }
