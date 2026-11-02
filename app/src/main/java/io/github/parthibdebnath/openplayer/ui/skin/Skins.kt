@@ -10,6 +10,7 @@ import io.github.parthibdebnath.openplayer.ui.skin.ipod.IpodSkin
 import io.github.parthibdebnath.openplayer.ui.skin.luna.LunaSkin
 import io.github.parthibdebnath.openplayer.ui.skin.metro.MetroSkin
 import io.github.parthibdebnath.openplayer.ui.skin.platinum.PlatinumSkin
+import io.github.parthibdebnath.openplayer.ui.skin.s60.S60Skin
 import io.github.parthibdebnath.openplayer.ui.skin.xmb.XmbSkin
 
 /** The skin for a theme; null is openplayer's own look. */
@@ -25,5 +26,5 @@ fun skinFor(theme: UiTheme): Skin? = when (theme) {
     UiTheme.BLADES -> BladesSkin
     UiTheme.CHANNELS -> ChannelsSkin
     UiTheme.CARDS -> CardsSkin
-    else -> null
+    UiTheme.S60 -> S60Skin
 }
