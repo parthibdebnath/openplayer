@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -59,7 +58,7 @@ fun SfxScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
             // Most of the gap is inside the scroll, not above it: a scroll clips at its edges,
             // and each tab's first toggle sat right on that edge, so its glass swell and shadow
             // were sliced off at the top whenever it was pressed.
-            Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(top = 16.dp)) {
+            Column(modifier = Modifier.weight(1f).verticalScroll(io.github.parthibdebnath.openplayer.ui.skin.rememberSkinScrollState()).padding(top = 16.dp)) {
                 when (selectedTab) {
                     0 -> SpeedTab(state = effects.speed, onUpdate = { viewModel.updateSpeed(it) })
                     1 -> PitchTab(state = effects.pitch, onUpdate = { viewModel.updatePitch(it) })

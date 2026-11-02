@@ -14,7 +14,6 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
@@ -149,9 +148,25 @@ class ThemeRenderTest {
         settle(900)
         shot(dir, "8_settings")
         // The theme picker, further down Settings.
-        compose.onAllNodes(hasTestTag("theme:${UiTheme.S60.name}")).onFirstOrNull()?.let {
-            it.performScrollTo()
-            settle(500)
+        // Swiped to rather than scrolled to: a scroll-to animates, and on this paused clock waits forever.
+        val picker = hasTestTag("theme:${UiTheme.DEFAULT.name}")
+        if (compose.onAllNodes(picker).fetchSemanticsNodes().isNotEmpty()) {
+            val screenHeight = compose.onAllNodes(androidx.compose.ui.test.isRoot()).fetchSemanticsNodes().first().size.height
+            // The iPod's list sits in the small screen above the wheel and scrolls with the wheel.
+            val wheel = compose.onAllNodes(hasTestTag("ipod:wheel")).fetchSemanticsNodes().isNotEmpty()
+            repeat(30) {
+                val top = compose.onAllNodes(picker).fetchSemanticsNodes().firstOrNull()?.positionInRoot?.y ?: return@repeat
+                if (top < screenHeight * (if (wheel) 0.3f else 0.4f)) return@repeat
+                if (wheel) {
+                    wheelSpin(60f, 6) { settle(it) }
+                } else {
+                    compose.onAllNodes(androidx.compose.ui.test.isRoot()).onFirstOrNull()?.performTouchInput {
+                        swipe(Offset(centerX, height * 0.56f), Offset(centerX, height * 0.44f), 700)
+                    }
+                }
+                settle(500)
+            }
+            settle(600)
             shot(dir, "8b_theme_picker")
         }
 

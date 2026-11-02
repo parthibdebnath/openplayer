@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -130,7 +129,7 @@ fun SettingsScreen(
 
     Box(modifier = modifier.fillMaxSize()) {
     val skin = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = skin?.gutter ?: 24.dp).verticalScroll(rememberScrollState())) {
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = skin?.gutter ?: 24.dp).verticalScroll(io.github.parthibdebnath.openplayer.ui.skin.rememberSkinScrollState())) {
         Spacer(Modifier.height(if (skin != null) 12.dp else 24.dp))
         Text(text = "Settings", style = interTextStyle(20, bold = true), color = LocalAppColors.current.onBackground)
         Spacer(Modifier.height(24.dp))

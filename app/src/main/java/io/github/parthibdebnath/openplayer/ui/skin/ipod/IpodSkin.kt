@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.ScrollableState
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -127,7 +128,9 @@ internal class WheelBus {
     var onStep: ((Int) -> Boolean)? = null
     var onCenter: (() -> Boolean)? = null
     var onCenterHold: (() -> Boolean)? = null
-    var list: LazyListState? = null
+    /** Scroll areas on screen, newest last; the wheel scrolls the newest. */
+    val lists = mutableListOf<ScrollableState>()
+    val list: ScrollableState? get() = lists.lastOrNull()
 }
 
 internal val LocalWheelBus = staticCompositionLocalOf<WheelBus?> { null }
@@ -624,13 +627,17 @@ object IpodSkin : Skin() {
 
     /** Hands a list to the wheel while it's on screen. */
     @Composable
-    private fun RegisterList(state: LazyListState) {
+    private fun RegisterList(state: ScrollableState) {
         val bus = LocalWheelBus.current ?: return
-        DisposableEffect(state) {
-            bus.list = state
-            onDispose { if (bus.list === state) bus.list = null }
+        DisposableEffect(bus, state) {
+            bus.lists.remove(state)
+            bus.lists.add(state)
+            onDispose { bus.lists.remove(state) }
         }
     }
+
+    @Composable
+    override fun ScrollArea(state: ScrollableState) = RegisterList(state)
 
     @Composable
     override fun SongRow(model: SongRowModel, modifier: Modifier) {

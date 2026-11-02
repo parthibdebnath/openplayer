@@ -1,5 +1,8 @@
 package io.github.parthibdebnath.openplayer.ui.skin
 
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.gestures.ScrollableState
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
@@ -231,6 +234,10 @@ abstract class Skin {
     @Composable
     abstract fun Divider(modifier: Modifier)
 
+    /** A screen's scroll area, handed to the skin while it's on screen (the iPod's wheel scrolls it). */
+    @Composable
+    open fun ScrollArea(state: ScrollableState) = Unit
+
     @Composable
     open fun Scrollbar(state: LazyListState, modifier: Modifier) =
         io.github.parthibdebnath.openplayer.ui.components.DefaultListScrollbar(state, modifier, 0.35f)
@@ -274,4 +281,12 @@ abstract class Skin {
     /** Whether the File and SFX screens show [MiniPlayer]; a frame with its own transport drops it. */
     open val showsMiniPlayer: Boolean = true
 
+}
+
+/** A [rememberScrollState] that's also handed to the current skin, for screens that scroll as a whole. */
+@Composable
+fun rememberSkinScrollState(): ScrollState {
+    val state = rememberScrollState()
+    LocalSkin.current?.ScrollArea(state)
+    return state
 }

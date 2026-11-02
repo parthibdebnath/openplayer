@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -75,7 +74,7 @@ fun LicencesScreen(modifier: Modifier = Modifier) {
         modifier = modifier
             .fillMaxSize()
             .padding(horizontal = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current?.gutter ?: 24.dp)
-            .verticalScroll(rememberScrollState()),
+            .verticalScroll(io.github.parthibdebnath.openplayer.ui.skin.rememberSkinScrollState()),
     ) {
         Spacer(Modifier.height(24.dp))
         Text(text = "Open-source licences", style = interTextStyle(20, bold = true), color = colors.onBackground)
