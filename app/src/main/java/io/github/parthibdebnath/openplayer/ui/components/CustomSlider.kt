@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -67,7 +68,10 @@ fun CustomSlider(
     val contentColor = LocalAppColors.current.onBackground
     val motion = rememberSliderMotion(value, valueRange, followSpec)
     // Apple-style: a solid pill that turns to glass while it's held. Only with glass theming on.
-    val glass = enabled && LocalGlassEnabled.current && USE_APPLE_GLASS
+    // A skin draws its own track and thumb; the touch handling below is the same for all.
+    val look = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current?.slider
+    var pressed by remember { mutableStateOf(false) }
+    val glass = look == null && enabled && LocalGlassEnabled.current && USE_APPLE_GLASS
     val pageColor = LocalAppColors.current.background
     val trackLayer = rememberGraphicsLayer()
     val thumb = rememberGlassThumbState(pressedScale = 1.6f)
@@ -81,7 +85,7 @@ fun CustomSlider(
     // The thumb is a pill drawn between 0 and (width - thumbWidth), so its centre only travels the
     // inset range. Mapping a touch against the full width therefore put the thumb slightly off the
     // finger, increasingly so toward the ends. This inverts the drawing maths exactly.
-    val thumbWidthPx = with(LocalDensity.current) { THUMB_WIDTH.toPx() }
+    val thumbWidthPx = with(LocalDensity.current) { (look?.thumbWidth ?: THUMB_WIDTH).toPx() }
 
     fun valueAt(x: Float): Float {
         val travel = (widthPx - thumbWidthPx).coerceAtLeast(1f)
@@ -97,6 +101,7 @@ fun CustomSlider(
         Modifier.pointerInput(valueRange, steps, commitOnRelease, glass) {
             awaitEachGesture {
                 val down = awaitFirstDown()
+                pressed = true
                 // The thumb lifts into glass as soon as a finger lands, as Apple's does.
                 if (glass) thumb.press()
                 // Horizontal slop only: a vertical swipe that starts on a slider is left to scroll
@@ -115,6 +120,7 @@ fun CustomSlider(
                     } else if (glass) {
                         thumb.release()
                     }
+                    pressed = false
                     return@awaitEachGesture
                 }
 
@@ -136,6 +142,7 @@ fun CustomSlider(
                     moveTo(valueAt(change.position.x))
                 }
                 if (glass) thumb.release()
+                pressed = false
                 if (completed) {
                     motion.release()
                     if (commitOnRelease) currentOnValueChange(current)
@@ -150,7 +157,7 @@ fun CustomSlider(
     }
 
     val density = LocalDensity.current
-    val heightPx = with(density) { SLIDER_HEIGHT.toPx() }
+    val heightPx = with(density) { (look?.height ?: SLIDER_HEIGHT).toPx() }
     fun fraction(): Float {
         val span = (valueRange.endInclusive - valueRange.start).takeIf { it > 0f } ?: 1f
         return ((motion.value - valueRange.start) / span).coerceIn(0f, 1f)
@@ -158,11 +165,15 @@ fun CustomSlider(
 
     Box(
         modifier = modifier
-            .height(SLIDER_HEIGHT)
+            .height(look?.height ?: SLIDER_HEIGHT)
             .onSizeChanged { widthPx = it.width.toFloat().coerceAtLeast(1f) }
             .then(gestureModifier),
     ) {
         Canvas(modifier = Modifier.matchParentSize()) {
+            if (look != null) {
+                with(look) { drawSlider(fraction(), enabled, steps, pressed) }
+                return@Canvas
+            }
             val trackY = size.height / 2f
             val trackStroke = 3.dp.toPx()
             val alpha = if (enabled) 1f else 0.4f

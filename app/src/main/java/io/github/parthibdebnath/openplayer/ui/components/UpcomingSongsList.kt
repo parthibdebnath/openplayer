@@ -45,6 +45,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -143,11 +144,12 @@ fun UpcomingSongsList(
                 // The list grows upward, so the chevron points the way it's about to move: up to
                 // expand, and flipped over to collapse again.
                 icon = Icons.Filled.ExpandLess,
+                kind = io.github.parthibdebnath.openplayer.ui.skin.ButtonKind.Chevron,
                 contentDescription = if (expanded) "Collapse upcoming songs" else "Expand upcoming songs",
                 onClick = onToggleExpanded,
                 circleSize = 28.dp,
                 iconSize = 18.dp,
-                modifier = Modifier.rotate(chevronRotation),
+                modifier = Modifier.rotate(chevronRotation).testTag("upcoming:toggle"),
             )
         }
 

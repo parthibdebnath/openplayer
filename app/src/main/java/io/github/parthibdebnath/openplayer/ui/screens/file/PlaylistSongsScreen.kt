@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PlayArrow
@@ -38,6 +39,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -145,8 +147,35 @@ fun PlaylistSongsScreen(
         }
     }
 
-    Column(modifier = modifier.fillMaxSize().padding(horizontal = 18.dp)) {
-        Spacer(Modifier.height(16.dp))
+    // The song menu, shared by the plain rows and a skin's own.
+    fun songMenuItems(song: Song): List<ContextMenuItem> = listOf(
+            ContextMenuItem(label = "Play next", onClick = { viewModel.playNext(song) }),
+            ContextMenuItem(label = "Add to queue", onClick = { viewModel.queueSong(song) }),
+            ContextMenuItem(
+                label = if (song.id in favouriteIds) "Unfavourite" else "Favourite",
+                onClick = { viewModel.toggleFavourite(song) },
+            ),
+            ContextMenuItem(label = "Tags\u2026", onClick = { viewModel.openTagEditor(song) }),
+        ) + listOfNotNull(
+            // In a tag's own list, the quick way to take a song out of it.
+            tagId?.let { id ->
+                ContextMenuItem(label = "Remove tag", onClick = { viewModel.removeTag(song, id) })
+            },
+        ) + listOf(
+            ContextMenuItem(label = "Rename", onClick = { renamingSong = song }),
+            ContextMenuItem(label = "Remove", destructive = true, onClick = {
+                scope.launch {
+                    val authorized = if (settings.requireAuthToDelete) {
+                        authGateManager.authenticate("Authenticate to remove song")
+                    } else true
+                    if (authorized) removingSong = song
+                }
+            }),
+        )
+
+    val skin = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current
+    Column(modifier = modifier.fillMaxSize().padding(horizontal = skin?.gutter ?: 18.dp)) {
+        Spacer(Modifier.height(if (skin != null) 12.dp else 16.dp))
         Text(
             text = playlistName,
             style = interTextStyle(20, bold = true),
@@ -222,7 +251,8 @@ fun PlaylistSongsScreen(
             )
         }
 
-        Box(modifier = Modifier.weight(1f)) {
+        val wellModifier = Modifier.weight(1f)
+        val wellContent: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit = {
             val emptyMessage = when {
                 !songsLoaded -> null
                 songs.isEmpty() && isFavourites -> "No favourites yet. Tap and hold a song and choose Favourite."
@@ -241,8 +271,8 @@ fun PlaylistSongsScreen(
                     modifier = Modifier.padding(top = 8.dp),
                 )
             }
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                items(visibleSongs, key = { it.id }) { song ->
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().testTag("songs:list")) {
+                itemsIndexed(visibleSongs, key = { _, song -> song.id }) { rowIndex, song ->
                     val isCurrent = song.id == currentSongId
                     // A file that couldn't be read when it was indexed - empty, damaged, or not audio
                     // at all - is dimmed and says so, rather than looking like any other song and then
@@ -252,6 +282,36 @@ fun PlaylistSongsScreen(
                     // a long one that's cut off can be read. Remembered per item, so it follows the
                     // song through sorting and filtering.
                     var titleScrollRequest by remember { mutableIntStateOf(0) }
+                    val songMenu: @Composable () -> Unit = {
+                        if (contextMenuSongId == song.id) {
+                            GlassContextMenu(
+                                expanded = true,
+                                onDismissRequest = { contextMenuSongId = null },
+                                offset = IntOffset(0, 0),
+                                items = songMenuItems(song),
+                            )
+                        }
+                    }
+                    if (skin != null) {
+                        skin.SongRow(
+                            io.github.parthibdebnath.openplayer.ui.skin.SongRowModel(
+                                index = rowIndex,
+                                title = song.displayName,
+                                artist = if (unreadable) "Can't be read" else song.artist,
+                                isCurrent = isCurrent,
+                                unreadable = unreadable,
+                                titleScrollRequest = titleScrollRequest,
+                                onClick = { viewModel.playSpecificSong(visibleSongs, playlistName, song, sourceKey) },
+                                onLongClick = {
+                                    contextMenuSongId = song.id
+                                    titleScrollRequest++
+                                },
+                                menu = songMenu,
+                            ),
+                            Modifier.fillMaxWidth().height(SONG_ROW_HEIGHT),
+                        )
+                        return@itemsIndexed
+                    }
                     Box(modifier = if (unreadable) Modifier.alpha(0.4f) else Modifier) {
                         Row(
                             modifier = Modifier
@@ -300,37 +360,7 @@ fun PlaylistSongsScreen(
                             )
                         }
 
-                        if (contextMenuSongId == song.id) {
-                            GlassContextMenu(
-                                expanded = true,
-                                onDismissRequest = { contextMenuSongId = null },
-                                offset = IntOffset(0, 0),
-                                items = listOf(
-                                    ContextMenuItem(label = "Play next", onClick = { viewModel.playNext(song) }),
-                                    ContextMenuItem(label = "Add to queue", onClick = { viewModel.queueSong(song) }),
-                                    ContextMenuItem(
-                                        label = if (song.id in favouriteIds) "Unfavourite" else "Favourite",
-                                        onClick = { viewModel.toggleFavourite(song) },
-                                    ),
-                                    ContextMenuItem(label = "Tags\u2026", onClick = { viewModel.openTagEditor(song) }),
-                                ) + listOfNotNull(
-                                    // In a tag's own list, the quick way to take a song out of it.
-                                    tagId?.let { id ->
-                                        ContextMenuItem(label = "Remove tag", onClick = { viewModel.removeTag(song, id) })
-                                    },
-                                ) + listOf(
-                                    ContextMenuItem(label = "Rename", onClick = { renamingSong = song }),
-                                    ContextMenuItem(label = "Remove", destructive = true, onClick = {
-                                        scope.launch {
-                                            val authorized = if (settings.requireAuthToDelete) {
-                                                authGateManager.authenticate("Authenticate to remove song")
-                                            } else true
-                                            if (authorized) removingSong = song
-                                        }
-                                    }),
-                                ),
-                            )
-                        }
+                        songMenu()
                     }
                 }
             }
@@ -339,6 +369,7 @@ fun PlaylistSongsScreen(
                 modifier = Modifier.align(Alignment.CenterEnd),
             )
         }
+        if (skin != null) skin.ListWell(wellModifier, wellContent) else Box(wellModifier, content = wellContent)
 
         removingSong?.let { song ->
             GlassNotification(

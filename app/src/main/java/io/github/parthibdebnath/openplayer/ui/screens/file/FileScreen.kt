@@ -31,6 +31,8 @@ fun FileScreen(
     authGateManager: AuthGateManager,
     resetSignal: Int,
     modifier: Modifier = Modifier,
+    /** Bumped to open Settings from outside - a skin's menu, say. */
+    settingsSignal: Int = 0,
 ) {
     var destination by rememberSaveable(stateSaver = FileDestination.Saver) {
         mutableStateOf<FileDestination>(FileDestination.PlaylistList)
@@ -55,6 +57,13 @@ fun FileScreen(
         if (resetSignal != lastHandledReset) {
             lastHandledReset = resetSignal
             destination = FileDestination.PlaylistList
+        }
+    }
+    var lastHandledSettings by rememberSaveable { mutableIntStateOf(settingsSignal) }
+    LaunchedEffect(settingsSignal) {
+        if (settingsSignal != lastHandledSettings) {
+            lastHandledSettings = settingsSignal
+            destination = FileDestination.Settings
         }
     }
 

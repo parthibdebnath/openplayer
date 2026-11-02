@@ -16,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import io.github.parthibdebnath.openplayer.data.model.Song
@@ -44,6 +45,28 @@ fun NonHomePlayerBar(
     /** The title held: the song's tags are edited. */
     onHoldTitle: ((Song) -> Unit)? = null,
 ) {
+    val skin = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current
+    if (skin != null) {
+        if (skin.showsMiniPlayer) {
+            skin.MiniPlayer(
+                io.github.parthibdebnath.openplayer.ui.skin.MiniPlayerModel(
+                    song = currentSong,
+                    isPlaying = isPlaying,
+                    positionMs = positionMs,
+                    durationMs = durationMs,
+                    onPlayPause = onPlayPause,
+                    onNext = onNext,
+                    onPrevious = onPrevious,
+                    onSeek = onSeek,
+                    onOpenSettings = onOpenSettings,
+                    playbackRestored = playbackRestored,
+                    onHoldTitle = onHoldTitle,
+                ),
+                modifier,
+            )
+        }
+        return
+    }
     androidx.compose.foundation.layout.Column(modifier = modifier.fillMaxWidth()) {
         DottedDivider(modifier = Modifier.padding(vertical = 8.dp))
         // Explicit heights on both text rows. Letting them size to their content meant the bar's
@@ -86,6 +109,7 @@ fun NonHomePlayerBar(
                     onClick = onOpenSettings,
                     circleSize = 35.dp,
                     iconSize = 20.dp,
+                    modifier = Modifier.testTag("nav:settings"),
                 )
             } else {
                 Spacer(Modifier.size(35.dp))

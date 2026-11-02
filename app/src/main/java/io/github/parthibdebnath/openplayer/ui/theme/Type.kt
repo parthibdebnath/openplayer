@@ -29,7 +29,18 @@ val InterFontFamily = FontFamily(
     interWeight(700, FontWeight.Bold),
 )
 
-fun interTextStyle(sizeSp: Int, bold: Boolean = false) = TextStyle(
+/**
+ * The app's text style at a size. Under a skin it's the skin's own type for that size instead -
+ * every screen asks for its text through here, so a skin changes it all at once.
+ */
+@androidx.compose.runtime.Composable
+@androidx.compose.runtime.ReadOnlyComposable
+fun interTextStyle(sizeSp: Int, bold: Boolean = false): TextStyle {
+    val skin = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current
+    return skin?.textStyle(sizeSp, bold, androidx.compose.ui.platform.LocalDensity.current) ?: defaultTextStyle(sizeSp, bold)
+}
+
+fun defaultTextStyle(sizeSp: Int, bold: Boolean = false) = TextStyle(
     fontFamily = InterFontFamily,
     fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
     fontSize = sizeSp.sp,

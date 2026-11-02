@@ -98,14 +98,7 @@ fun TagEditor(
                 )
             }
             Spacer(Modifier.width(12.dp))
-            Icon(
-                imageVector = Icons.Filled.Check,
-                contentDescription = "Done",
-                tint = colors.onBackground,
-                modifier = Modifier
-                    .size(28.dp)
-                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClose),
-            )
+            ConfirmGlyph(icon = Icons.Filled.Check, contentDescription = "Done", onClick = onClose)
         }
 
         if (song.isExternal) {
@@ -153,13 +146,11 @@ fun TagEditor(
                 modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.width(14.dp))
-            Icon(
-                imageVector = Icons.Filled.Add,
+            ConfirmGlyph(
+                icon = Icons.Filled.Add,
                 contentDescription = "Add tag",
-                tint = colors.onBackground.copy(alpha = if (normalizeTagName(input).isEmpty()) 0.35f else 1f),
-                modifier = Modifier
-                    .size(28.dp)
-                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { add(input) },
+                onClick = { add(input) },
+                alpha = if (normalizeTagName(input).isEmpty()) 0.35f else 1f,
             )
         }
 

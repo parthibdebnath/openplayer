@@ -67,6 +67,22 @@ android {
     // throw on any call unless told to return defaults.
     testOptions {
         unitTests.isReturnDefaultValues = true
+        // The theme render harness (ThemeRenderTest) draws the real UI under Robolectric, which
+        // needs the app's resources - fonts above all.
+        unitTests.isIncludeAndroidResources = true
+        unitTests.all {
+            it.maxHeapSize = "4g"
+            it.systemProperty("robolectric.graphicsMode", "NATIVE")
+            // Hardware rendering for captures: Compose draws through RenderNodes, which a software canvas can't.
+            it.systemProperty("robolectric.pixelCopyRenderMode", "hardware")
+            it.systemProperty("roborazzi.test.record", "true")
+            // Where rendered frames go; set with -PthemeRenderOut=/some/dir.
+            it.systemProperty("themeRender.out", project.findProperty("themeRenderOut")?.toString() ?: "")
+            it.systemProperty("themeRender.only", project.findProperty("themeRenderOnly")?.toString() ?: "")
+            it.systemProperty("themeRender.video", project.findProperty("themeRenderVideo")?.toString() ?: "")
+            // Robolectric downloads its Android runtime from Maven Central; a mirror can stand in.
+            project.findProperty("robolectricRepo")?.let { url -> it.systemProperty("robolectric.dependency.repo.url", url.toString()) }
+        }
     }
 
     // The app is English-only, but every library ships its strings in eighty-odd languages, all of
@@ -127,4 +143,9 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
 
     testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.roborazzi)
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.compose.ui.test.junit4)
+    debugImplementation(libs.compose.ui.test.manifest)
 }

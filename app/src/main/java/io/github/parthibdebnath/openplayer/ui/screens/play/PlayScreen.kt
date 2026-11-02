@@ -136,6 +136,25 @@ fun PlayScreen(
                 },
             ),
     ) {
+        val skin = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current
+        if (skin != null) {
+            SkinnedPlay(
+                skin = skin,
+                viewModel = viewModel,
+                brightnessController = brightnessController,
+                onOpenLibrary = onOpenLibrary,
+                upcomingExpanded = upcomingExpanded,
+                onSetUpcomingExpanded = { open ->
+                    toggledUpcoming = open
+                    viewModel.setUpcomingExpanded(open)
+                },
+                sleepTimerOpen = sleepTimerOpen,
+                onSleepTimerOpenChange = { sleepTimerOpen = it },
+                pendingOutputSwitch = pendingOutputSwitch,
+                onPendingOutputSwitchChange = { pendingOutputSwitch = it },
+            )
+            return@Box
+        }
         // Swiping up or down on the empty part of the screen - everything above the upcoming
         // list, the header included - opens or closes the list, the way it grows and shrinks,
         // without reaching for the small chevron. Only above the list: an open list leaves little
@@ -340,4 +359,121 @@ fun PlayScreen(
             BatteryIndicator()
         }
     }
+}
+
+/**
+ * The Play screen under a skin: the same state and actions, handed to the skin to lay out its own
+ * way - an iTunes window, an iPod, a Zune. The pieces with behaviour of their own (the header and
+ * its output-switch confirmation, the sleep timer panel, the upcoming list) are passed in ready-made.
+ */
+@Composable
+private fun SkinnedPlay(
+    skin: io.github.parthibdebnath.openplayer.ui.skin.Skin,
+    viewModel: MainViewModel,
+    brightnessController: BrightnessVolumeController,
+    onOpenLibrary: () -> Unit,
+    upcomingExpanded: Boolean,
+    onSetUpcomingExpanded: (Boolean) -> Unit,
+    sleepTimerOpen: Boolean,
+    onSleepTimerOpenChange: (Boolean) -> Unit,
+    pendingOutputSwitch: OutputDevice?,
+    onPendingOutputSwitchChange: (OutputDevice?) -> Unit,
+) {
+    val playbackState by viewModel.playbackUiState.collectAsStateWithLifecycle()
+    val playbackRestored by viewModel.playbackRestored.collectAsStateWithLifecycle()
+    val effects by viewModel.effectsState.collectAsStateWithLifecycle()
+    val settings by viewModel.settingsSnapshot.collectAsStateWithLifecycle()
+    val sleepTimer by viewModel.sleepTimerState.collectAsStateWithLifecycle()
+    val outputDevice by viewModel.outputDevice.collectAsStateWithLifecycle()
+    val bluetoothConnected by viewModel.bluetoothConnected.collectAsStateWithLifecycle()
+    val favouriteIds by viewModel.favouriteIds.collectAsStateWithLifecycle()
+
+    val model = io.github.parthibdebnath.openplayer.ui.skin.NowPlayingModel(
+        playback = playbackState,
+        playbackRestored = playbackRestored,
+        progress = if (playbackState.durationMs > 0) playbackState.positionMs.toFloat() / playbackState.durationMs else 0f,
+        onSeek = { fraction -> viewModel.seekTo((fraction * playbackState.durationMs).toLong()) },
+        onPlayPause = { viewModel.togglePlayPause() },
+        onNext = { viewModel.skipNext() },
+        onPrevious = { viewModel.skipPrevious() },
+        shuffleOn = playbackState.shuffleOn,
+        onToggleShuffle = { viewModel.toggleShuffle() },
+        isFavourite = playbackState.currentSong?.takeUnless { it.isExternal }?.let { it.id in favouriteIds },
+        onToggleFavourite = { playbackState.currentSong?.let { viewModel.toggleFavourite(it) } },
+        outputDevice = outputDevice,
+        outputSwitchAvailable = bluetoothConnected,
+        onToggleOutput = {
+            onPendingOutputSwitchChange(if (outputDevice == OutputDevice.SPEAKER) OutputDevice.BLUETOOTH else OutputDevice.SPEAKER)
+        },
+        sleepTimerActive = sleepTimer.isActive,
+        fxOn = effects.isFxIndicatorOn,
+        shuffleLocked = settings.shuffleSeedLocked,
+        twentyFourHour = settings.twentyFourHourClock,
+        onOpenLibrary = onOpenLibrary,
+        onHoldTitle = { playbackState.currentSong?.let(viewModel::openTagEditor) },
+        onOpenSleepTimer = { onSleepTimerOpenChange(true) },
+        message = playbackState.error?.let { "Can't play this song: $it" } ?: playbackState.notice,
+        upcomingExpanded = upcomingExpanded,
+        onSetUpcomingExpanded = onSetUpcomingExpanded,
+        onSwapUpcoming = { viewModel.replaceUpcomingSlot(it) },
+        onHoldSong = viewModel::openTagEditor,
+        onVolumeDelta = { delta ->
+            val next = (brightnessController.currentVolumePercent() + delta).coerceIn(0, 100)
+            brightnessController.setVolumePercent(next)
+            next
+        },
+        header = { headerModifier ->
+            TopHeader(
+                playlistLabel = playbackState.playlistLabel,
+                twentyFourHour = settings.twentyFourHourClock,
+                onOpenSleepTimer = { onSleepTimerOpenChange(true) },
+                modifier = headerModifier,
+                overlay = {
+                    pendingOutputSwitch?.let { target ->
+                        GlassNotification(
+                            title = "Switch output device?",
+                            message = "Play through ${if (target == OutputDevice.BLUETOOTH) "Bluetooth" else "the phone speaker"} instead?",
+                            onConfirm = {
+                                viewModel.switchOutputDevice(target)
+                                onPendingOutputSwitchChange(null)
+                            },
+                            onDismiss = { onPendingOutputSwitchChange(null) },
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                },
+            )
+        },
+        sleepTimerPanel = if (!sleepTimerOpen) null else { panelModifier ->
+            val prefill = viewModel.sleepTimerPrefill()
+            SleepTimerOverlay(
+                initialHours = if (sleepTimer.isActive) prefill.first else 0,
+                initialMinutes = if (sleepTimer.isActive) prefill.second else 0,
+                initialPlayLastSongToEnd = sleepTimer.playLastSongToEnd,
+                onConfirm = { h, m, playToEnd ->
+                    viewModel.confirmSleepTimer(h, m, playToEnd)
+                    onSleepTimerOpenChange(false)
+                },
+                onDismiss = {
+                    viewModel.confirmSleepTimer(0, 0, sleepTimer.playLastSongToEnd)
+                    onSleepTimerOpenChange(false)
+                },
+                modifier = panelModifier,
+            )
+        },
+        upcoming = { listModifier ->
+            if (playbackState.currentSong != null) {
+                UpcomingSongsList(
+                    upcoming = playbackState.upcoming,
+                    expanded = upcomingExpanded,
+                    onToggleExpanded = { onSetUpcomingExpanded(!upcomingExpanded) },
+                    onSwapSlot = { viewModel.replaceUpcomingSlot(it) },
+                    onReorder = { from, to -> viewModel.reorderUpcoming(from, to) },
+                    onHoldSong = viewModel::openTagEditor,
+                    modifier = listModifier,
+                )
+            }
+        },
+    )
+    skin.NowPlaying(model)
 }

@@ -13,6 +13,11 @@ import androidx.compose.ui.unit.dp
 /** The 50%-opacity dotted content separator above the mini player on non-Play screens. */
 @Composable
 fun DottedDivider(modifier: Modifier = Modifier) {
+    val skin = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current
+    if (skin != null) {
+        skin.Divider(modifier)
+        return
+    }
     // Read outside the draw lambda: a DrawScope isn't a composable, so it can't read the local.
     val contentColor = LocalAppColors.current.onBackground
     Canvas(modifier = modifier.fillMaxWidth()) {

@@ -331,6 +331,7 @@ fun CompactMainControls(
             onClick = onPrevious,
             circleSize = ArcGeometry.PREV_SIZE,
             iconSize = ArcGeometry.PREV_ICON,
+            kind = io.github.parthibdebnath.openplayer.ui.skin.ButtonKind.Previous,
         )
         GlassIconButton(
             icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
@@ -338,6 +339,7 @@ fun CompactMainControls(
             onClick = onPlayPause,
             circleSize = ArcGeometry.PLAY_SIZE,
             iconSize = ArcGeometry.PLAY_ICON,
+            kind = io.github.parthibdebnath.openplayer.ui.skin.ButtonKind.Play,
         )
         GlassIconButton(
             icon = Icons.Filled.SkipNext,
@@ -345,6 +347,7 @@ fun CompactMainControls(
             onClick = onNext,
             circleSize = ArcGeometry.NEXT_SIZE,
             iconSize = ArcGeometry.NEXT_ICON,
+            kind = io.github.parthibdebnath.openplayer.ui.skin.ButtonKind.Next,
         )
     }
 }

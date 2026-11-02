@@ -66,6 +66,27 @@ fun TopHeader(
     onOpenSleepTimer: (() -> Unit)? = null,
     overlay: (@Composable BoxScope.() -> Unit)? = null,
 ) {
+    val skin = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current
+    if (skin != null) {
+        if (skin.showsHeader) {
+            skin.Header(playlistLabel, twentyFourHour, onOpenSleepTimer, overlay, modifier)
+        } else if (overlay != null) {
+            // The header's gone, but what it carries over it (a confirmation) still has to show.
+            Box(modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) { overlay() }
+        }
+        return
+    }
+    DefaultTopHeader(playlistLabel, twentyFourHour, modifier, onOpenSleepTimer, overlay)
+}
+
+@Composable
+fun DefaultTopHeader(
+    playlistLabel: String,
+    twentyFourHour: Boolean,
+    modifier: Modifier = Modifier,
+    onOpenSleepTimer: (() -> Unit)? = null,
+    overlay: (@Composable BoxScope.() -> Unit)? = null,
+) {
     // The top inset lives here rather than at each call site, so the header sits at exactly the
     // same height on every screen - it used to be 12dp higher on the Play screen, which showed up
     // as the clock jumping when switching tabs.
@@ -105,34 +126,7 @@ fun TopClock(
     modifier: Modifier = Modifier,
     onOpenSleepTimer: (() -> Unit)? = null,
 ) {
-    var now by remember { mutableStateOf(Date()) }
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    val context = LocalContext.current
-    LaunchedEffect(lifecycle) {
-        // Only while the app is visible, and driven by the system's own minute tick, plus its
-        // time-set and time-zone broadcasts. Timing the next minute from the wall clock instead
-        // left the clock showing the old time for up to a minute after the phone's clock or time
-        // zone changed.
-        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            now = Date()
-            val receiver = object : BroadcastReceiver() {
-                override fun onReceive(ctx: Context?, intent: Intent?) {
-                    now = Date()
-                }
-            }
-            val filter = IntentFilter().apply {
-                addAction(Intent.ACTION_TIME_TICK)
-                addAction(Intent.ACTION_TIME_CHANGED)
-                addAction(Intent.ACTION_TIMEZONE_CHANGED)
-            }
-            ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
-            try {
-                awaitCancellation()
-            } finally {
-                context.unregisterReceiver(receiver)
-            }
-        }
-    }
+    val now = rememberCurrentTime()
     val formatted = formatClockTime(now, twentyFourHour)
     val dateText = formatDate(now)
 
@@ -180,4 +174,38 @@ fun TopClock(
             modifier = Modifier.alignByBaseline(),
         )
     }
+}
+
+/** The time now, updated each minute while the app is on screen. */
+@Composable
+fun rememberCurrentTime(): Date {
+    var now by remember { mutableStateOf(Date()) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val context = LocalContext.current
+    LaunchedEffect(lifecycle) {
+        // Only while the app is visible, and driven by the system's own minute tick, plus its
+        // time-set and time-zone broadcasts. Timing the next minute from the wall clock instead
+        // left the clock showing the old time for up to a minute after the phone's clock or time
+        // zone changed.
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            now = Date()
+            val receiver = object : BroadcastReceiver() {
+                override fun onReceive(ctx: Context?, intent: Intent?) {
+                    now = Date()
+                }
+            }
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_TIME_TICK)
+                addAction(Intent.ACTION_TIME_CHANGED)
+                addAction(Intent.ACTION_TIMEZONE_CHANGED)
+            }
+            ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+            try {
+                awaitCancellation()
+            } finally {
+                context.unregisterReceiver(receiver)
+            }
+        }
+    }
+    return now
 }

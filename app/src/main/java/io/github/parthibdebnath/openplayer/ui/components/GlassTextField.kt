@@ -140,7 +140,10 @@ fun GlassTextField(
     Box(
         modifier = modifier
             .heightIn(min = 40.dp)
-            .glassSurface(shape = RoundedCornerShape(10.dp))
+            .then(
+                io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current?.textField(Modifier, focused)
+                    ?: Modifier.glassSurface(shape = RoundedCornerShape(10.dp)),
+            )
             // The text field only occupies the width of its own content, so tapping the empty
             // part of the box did nothing. This makes the whole field focus the input.
             .clickable(

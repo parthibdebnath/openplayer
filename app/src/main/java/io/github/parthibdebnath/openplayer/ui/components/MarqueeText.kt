@@ -87,7 +87,12 @@ fun MarqueeText(
         modifier = modifier
             .clip(SidewaysOnly)
             .onGloballyPositioned { containerWidthPx = it.size.width },
-        contentAlignment = Alignment.CenterStart,
+        // A centred style is centred while it fits; scrolling always starts from the left.
+        contentAlignment = if (style.textAlign == androidx.compose.ui.text.style.TextAlign.Center && overflowPx <= 0) {
+            Alignment.Center
+        } else {
+            Alignment.CenterStart
+        },
     ) {
         Text(
             text = text,

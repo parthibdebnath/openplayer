@@ -39,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -128,8 +129,9 @@ fun SettingsScreen(
     // Imported playlists whose folders this install can't read yet, picked again one at a time.
 
     Box(modifier = modifier.fillMaxSize()) {
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp).verticalScroll(rememberScrollState())) {
-        Spacer(Modifier.height(24.dp))
+    val skin = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = skin?.gutter ?: 24.dp).verticalScroll(rememberScrollState())) {
+        Spacer(Modifier.height(if (skin != null) 12.dp else 24.dp))
         Text(text = "Settings", style = interTextStyle(20, bold = true), color = LocalAppColors.current.onBackground)
         Spacer(Modifier.height(24.dp))
 
@@ -360,6 +362,20 @@ fun SettingsScreen(
         Spacer(Modifier.height(34.dp))
 
         SectionHeading("Appearance")
+        Text(text = "Theme", style = interTextStyle(20, bold = false), color = LocalAppColors.current.onBackground)
+        SettingNote("Experimental looks modelled on classic interfaces. Glass theming and the background colour apply to openplayer's own look.")
+        Spacer(Modifier.height(16.dp))
+        io.github.parthibdebnath.openplayer.data.settings.UiTheme.entries.forEach { theme ->
+            ToggleRow(
+                label = "${theme.label} \u00B7 ${theme.inspiration}",
+                checked = settings.uiTheme == theme,
+                onToggle = { viewModel.setUiTheme(theme) },
+                bold = false,
+                fontSizeSp = 16,
+                modifier = Modifier.padding(vertical = 6.dp).testTag("theme:${theme.name}"),
+            )
+        }
+        Spacer(Modifier.height(34.dp))
         ToggleRow(
             label = "Glass theming",
             checked = settings.glassTheming,

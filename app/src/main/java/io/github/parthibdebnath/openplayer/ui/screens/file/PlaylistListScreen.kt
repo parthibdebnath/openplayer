@@ -37,6 +37,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import io.github.parthibdebnath.openplayer.ui.skin.CollectionEntry
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.style.TextOverflow
@@ -102,11 +104,12 @@ fun PlaylistListScreen(
         renamingTag = null
     }
 
+    val gutter = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current?.gutter ?: 24.dp
     Box(modifier = modifier.fillMaxSize()) {
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
-        Spacer(Modifier.height(24.dp))
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = gutter)) {
+        Spacer(Modifier.height(if (io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current != null) 12.dp else 24.dp))
         Text(text = "Playlists", style = interTextStyle(20, bold = true), color = LocalAppColors.current.onBackground)
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(if (io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current != null) 10.dp else 16.dp))
 
         // In the column's flow, sharing its gutter, and only ever one at a time - as full-bleed
         // overlays at a fixed offset these drew at a different width to everything else and
@@ -147,7 +150,123 @@ fun PlaylistListScreen(
             )
         }
 
-        Box(modifier = Modifier.weight(1f)) {
+        val skin = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current
+        if (skin != null) {
+            val entries = buildList {
+                if (favourites.isNotEmpty()) {
+                    add(
+                        CollectionEntry(
+                            key = "favourites",
+                            kind = CollectionEntry.Kind.Favourites,
+                            number = null,
+                            title = FAVOURITES_LABEL,
+                            subtitle = if (favourites.size == 1) "1 song" else "${favourites.size} songs",
+                            emphasized = false,
+                            onClick = { onOpenPlaylist(FAVOURITES_PLAYLIST_ID) },
+                            onLongClick = { favouritesMenuOpen = true },
+                            longClickLabel = "Favourites options",
+                            menu = {
+                                if (favouritesMenuOpen) {
+                                    GlassContextMenu(
+                                        expanded = true,
+                                        onDismissRequest = { favouritesMenuOpen = false },
+                                        items = listOf(
+                                            ContextMenuItem(label = "Play", onClick = { viewModel.playFavourites(shuffled = false) }),
+                                            ContextMenuItem(label = "Shuffle", onClick = { viewModel.playFavourites(shuffled = true) }),
+                                        ),
+                                    )
+                                }
+                            },
+                        ),
+                    )
+                }
+                tags.forEach { tag ->
+                    add(
+                        CollectionEntry(
+                            key = "tag-${tag.id}",
+                            kind = CollectionEntry.Kind.Tag,
+                            number = null,
+                            title = tag.name,
+                            subtitle = if (tag.songCount == 1) "1 song" else "${tag.songCount} songs",
+                            emphasized = false,
+                            onClick = { onOpenPlaylist(tagPlaylistId(tag.id)) },
+                            onLongClick = { tagMenuId = tag.id },
+                            longClickLabel = "Tag options",
+                            menu = {
+                                if (tagMenuId == tag.id) {
+                                    GlassContextMenu(
+                                        expanded = true,
+                                        onDismissRequest = { tagMenuId = null },
+                                        items = listOf(
+                                            ContextMenuItem(label = "Play", onClick = { viewModel.playTag(tag, shuffled = false) }),
+                                            ContextMenuItem(label = "Shuffle", onClick = { viewModel.playTag(tag, shuffled = true) }),
+                                            ContextMenuItem(label = "Rename", onClick = { renamingTag = tag }),
+                                            ContextMenuItem(label = "Delete tag", destructive = true, onClick = { deletingTag = tag }),
+                                        ),
+                                    )
+                                }
+                            },
+                        ),
+                    )
+                }
+                playlists.forEachIndexed { index, playlist ->
+                    add(
+                        CollectionEntry(
+                            key = playlist.id,
+                            kind = CollectionEntry.Kind.Playlist,
+                            number = index + 1,
+                            title = playlist.displayName,
+                            subtitle = when {
+                                playlist.songCount == 0 && scanning -> "Scanning\u2026"
+                                playlist.songCount == 1 -> "1 song"
+                                else -> "${playlist.songCount} songs"
+                            } + if (playlist.id == playingPlaylistId) " \u00B7 Playing" else "",
+                            emphasized = playlist.id == playingPlaylistId,
+                            onClick = { onOpenPlaylist(playlist.id) },
+                            onLongClick = { contextMenuPlaylistId = playlist.id },
+                            longClickLabel = "Playlist options",
+                            menu = {
+                                if (contextMenuPlaylistId == playlist.id) {
+                                    GlassContextMenu(
+                                        expanded = true,
+                                        onDismissRequest = { contextMenuPlaylistId = null },
+                                        items = listOf(
+                                            ContextMenuItem(label = "Play", onClick = { viewModel.playPlaylist(playlist.id, shuffled = false) }),
+                                            ContextMenuItem(label = "Shuffle", onClick = { viewModel.playPlaylist(playlist.id, shuffled = true) }),
+                                            ContextMenuItem(label = "Refresh", onClick = { viewModel.rescanPlaylist(playlist.id) }),
+                                            ContextMenuItem(label = "Rename", onClick = { renamingPlaylist = playlist }),
+                                            ContextMenuItem(
+                                                label = "Include subfolders",
+                                                selected = playlist.includeSubfolders,
+                                                onClick = { viewModel.setIncludeSubfolders(playlist.id, !playlist.includeSubfolders) },
+                                            ),
+                                            ContextMenuItem(label = "Delete", destructive = true, onClick = {
+                                                scope.launch {
+                                                    val authorized = if (settings.requireAuthToDelete) {
+                                                        authGateManager.authenticate("Authenticate to delete playlist")
+                                                    } else true
+                                                    if (authorized) deletingPlaylistId = playlist.id
+                                                }
+                                            }),
+                                        ),
+                                    )
+                                }
+                            },
+                        ),
+                    )
+                }
+            }
+            skin.Collection(
+                entries = entries,
+                emptyMessage = if (overview != null && playlists.isEmpty()) {
+                    "No playlists yet.\n\nTap + below and pick a folder of music - each folder becomes a playlist. " +
+                        "Your files stay where they are."
+                } else {
+                    null
+                },
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+            )
+        } else Box(modifier = Modifier.weight(1f)) {
             if (overview != null && playlists.isEmpty()) {
                 // First run: say what a playlist is here and how to make one, instead of a blank page.
                 Text(
@@ -277,6 +396,7 @@ fun PlaylistListScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .testTag("playlist:${playlist.displayName}")
                             .padding(vertical = 12.dp)
                             // combinedClickable rather than raw tap detection: it also exposes the
                             // row's tap and long-press to TalkBack and switch access.

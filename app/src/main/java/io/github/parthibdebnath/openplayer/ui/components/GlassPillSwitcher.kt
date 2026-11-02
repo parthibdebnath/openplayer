@@ -94,7 +94,10 @@ fun GlassPillSwitcher(
         if (index != selectedIndex) haptics?.tick()
         onSelect(index)
     }
-    if (LocalGlassEnabled.current && USE_APPLE_GLASS) {
+    val skin = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current
+    if (skin != null) {
+        skin.Switcher(items, selectedIndex, select, modifier, height, fontSizeSp, icons)
+    } else if (LocalGlassEnabled.current && USE_APPLE_GLASS) {
         AppleGlassSwitcher(items, selectedIndex, select, modifier, height, fontSizeSp, floating, icons)
     } else if (LocalGlassEnabled.current) {
         LiquidPillSwitcher(items, selectedIndex, select, modifier, height, fontSizeSp, floating, icons)

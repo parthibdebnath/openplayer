@@ -125,6 +125,7 @@ data class SettingsSnapshot(
     val hapticStrength: HapticStrength = SettingsDefaults.HAPTIC_STRENGTH,
     val keepScreenOn: Boolean = SettingsDefaults.KEEP_SCREEN_ON,
     val backupToFolders: Boolean = SettingsDefaults.BACKUP_TO_FOLDERS,
+    val uiTheme: UiTheme = UiTheme.DEFAULT,
 )
 
 /**
@@ -175,6 +176,7 @@ class SettingsRepository(private val context: Context) {
         val KEEP_SCREEN_ON = bool("keep_screen_on")
         val BACKUP_TO_FOLDERS = bool("backup_to_folders")
         val UPCOMING_EXPANDED = bool("upcoming_expanded")
+        val UI_THEME = text("ui_theme")
 
         /** Settings that no longer exist, cleared out by [prepare]. */
         val RETIRED = listOf(booleanPreferencesKey("invert_contrast"))
@@ -221,6 +223,7 @@ class SettingsRepository(private val context: Context) {
             hapticStrength = HapticStrength.fromName(p[Keys.HAPTIC_STRENGTH]),
             keepScreenOn = p[Keys.KEEP_SCREEN_ON] ?: SettingsDefaults.KEEP_SCREEN_ON,
             backupToFolders = p[Keys.BACKUP_TO_FOLDERS] ?: SettingsDefaults.BACKUP_TO_FOLDERS,
+            uiTheme = UiTheme.fromName(p[Keys.UI_THEME]),
         )
     }
 
@@ -283,6 +286,7 @@ class SettingsRepository(private val context: Context) {
     suspend fun setKeepScreenOn(value: Boolean) = set(Keys.KEEP_SCREEN_ON, value)
     suspend fun setBackupToFolders(value: Boolean) = set(Keys.BACKUP_TO_FOLDERS, value)
     suspend fun setUpcomingExpanded(value: Boolean) = set(Keys.UPCOMING_EXPANDED, value)
+    suspend fun setUiTheme(value: UiTheme) = set(Keys.UI_THEME, value.name)
 
     /**
      * Every stored setting by its stored name, for a backup. Read generically rather than field

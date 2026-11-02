@@ -44,6 +44,8 @@ fun Modifier.glassSurface(
     hideable: Boolean = false,
     role: GlassRole = GlassRole.Container,
 ): Modifier = composed {
+    val skin = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current
+    if (skin != null) return@composed skin.panel(this, shape, role, opacity)
     val glassEnabled = LocalGlassEnabled.current
     val colors = LocalAppColors.current
     if (glassEnabled && USE_APPLE_GLASS) {

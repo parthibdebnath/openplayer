@@ -66,7 +66,7 @@ fun SearchScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
         onDispose { viewModel.setSearchQuery("") }
     }
 
-    Column(modifier = modifier.fillMaxSize().padding(horizontal = 18.dp)) {
+    Column(modifier = modifier.fillMaxSize().padding(horizontal = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current?.gutter ?: 18.dp)) {
         Spacer(Modifier.height(16.dp))
         Text(text = "Search", style = interTextStyle(20, bold = true), color = LocalAppColors.current.onBackground)
         Spacer(Modifier.height(12.dp))

@@ -36,8 +36,28 @@ fun GlassIconButton(
     opacity: Float = 1f,
     tint: Color = LocalAppColors.current.onBackground,
     enabled: Boolean = true,
+    /** What the button is for; a skin can draw some kinds - Play above all - its own way. */
+    kind: io.github.parthibdebnath.openplayer.ui.skin.ButtonKind = io.github.parthibdebnath.openplayer.ui.skin.ButtonKind.Plain,
 ) {
     val haptics = LocalHaptics.current
+    val skin = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current
+    if (skin != null) {
+        skin.IconButton(
+            icon = icon,
+            contentDescription = contentDescription,
+            onClick = {
+                haptics?.click()
+                onClick()
+            },
+            modifier = modifier,
+            size = circleSize,
+            iconSize = iconSize,
+            opacity = opacity,
+            enabled = enabled,
+            kind = kind,
+        )
+        return
+    }
     Box(
         modifier = modifier
             .size(circleSize)
@@ -62,4 +82,40 @@ fun GlassIconButton(
             modifier = Modifier.size(iconSize),
         )
     }
+}
+
+/**
+ * The bare tick (or plus) that confirms a panel: just the glyph in openplayer's own look, and the
+ * skin's confirm button under a skin - an OK button, a gel pill - where a loose glyph would look lost.
+ */
+@Composable
+fun ConfirmGlyph(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    alpha: Float = 1f,
+) {
+    val skin = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current
+    if (skin != null) {
+        GlassIconButton(
+            icon = icon,
+            contentDescription = contentDescription,
+            onClick = onClick,
+            modifier = modifier,
+            circleSize = 32.dp,
+            iconSize = 20.dp,
+            opacity = alpha,
+            kind = io.github.parthibdebnath.openplayer.ui.skin.ButtonKind.Confirm,
+        )
+        return
+    }
+    Icon(
+        imageVector = icon,
+        contentDescription = contentDescription,
+        tint = LocalAppColors.current.onBackground.copy(alpha = alpha),
+        modifier = modifier
+            .size(28.dp)
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick),
+    )
 }

@@ -94,17 +94,7 @@ fun NamingDialog(
                     autoFocus = true,
                 )
                 Spacer(Modifier.width(14.dp))
-                Icon(
-                    imageVector = Icons.Filled.Check,
-                    contentDescription = "Confirm",
-                    tint = LocalAppColors.current.onBackground,
-                    modifier = Modifier
-                        .size(28.dp)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                        ) { confirm() },
-                )
+                ConfirmGlyph(icon = Icons.Filled.Check, contentDescription = "Confirm", onClick = { confirm() })
             }
         }
     }

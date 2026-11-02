@@ -60,7 +60,7 @@ fun MultiPlaylistScreen(
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current?.gutter ?: 24.dp)) {
         Spacer(Modifier.height(24.dp))
         Text(text = "Play from multiple playlists", style = interTextStyle(20, bold = true), color = LocalAppColors.current.onBackground)
         Spacer(Modifier.height(16.dp))

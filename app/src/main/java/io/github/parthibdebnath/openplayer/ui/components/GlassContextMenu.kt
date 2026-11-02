@@ -58,6 +58,15 @@ fun GlassContextMenu(
         // was held, not a full-width panel.
         // Follows the background's lightness like everything else: a fixed dark panel put black
         // text on dark grey whenever a light background colour was chosen.
+        val skin = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current
+        if (skin != null) {
+            skin.Menu(items) { item ->
+                onDismissRequest()
+                haptics?.click()
+                item.onClick()
+            }
+            return@Popup
+        }
         val panel = if (LocalAppColors.current.isLightBackground) Color(0xFFF2F2F5) else Color(0xFF1C1C1E)
         Column(
             modifier = Modifier

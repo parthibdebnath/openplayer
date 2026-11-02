@@ -26,6 +26,12 @@ fun ListScrollbar(
     modifier: Modifier = Modifier,
     alpha: Float = 0.35f,
 ) {
+    val skin = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current
+    if (skin != null) skin.Scrollbar(state, modifier) else DefaultListScrollbar(state, modifier, alpha)
+}
+
+@Composable
+fun DefaultListScrollbar(state: LazyListState, modifier: Modifier, alpha: Float) {
     // Read outside the draw lambda: a DrawScope isn't a composable, so it can't read the local.
     val contentColor = LocalAppColors.current.onBackground
     Canvas(modifier = modifier.width(3.dp).fillMaxHeight()) {

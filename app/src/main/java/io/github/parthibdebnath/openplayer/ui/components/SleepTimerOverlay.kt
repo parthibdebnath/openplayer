@@ -87,22 +87,16 @@ fun SleepTimerOverlay(
                 Text(text = "min", style = interTextStyle(16, bold = false), color = LocalAppColors.current.onBackground)
                 // Confirm sits at the right edge, level with the hr/min fields, per the mockup.
                 Spacer(Modifier.weight(1f))
-                Icon(
-                    imageVector = Icons.Filled.Check,
+                ConfirmGlyph(
+                    icon = Icons.Filled.Check,
                     contentDescription = "Confirm sleep timer",
-                    tint = LocalAppColors.current.onBackground,
-                    modifier = Modifier
-                        .size(28.dp)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                        ) {
-                            onConfirm(
-                                hoursText.toIntOrNull() ?: 0,
-                                minutesText.toIntOrNull() ?: 0,
-                                playLastSongToEnd,
-                            )
-                        },
+                    onClick = {
+                        onConfirm(
+                            hoursText.toIntOrNull() ?: 0,
+                            minutesText.toIntOrNull() ?: 0,
+                            playLastSongToEnd,
+                        )
+                    },
                 )
             }
             Spacer(Modifier.size(20.dp))
@@ -113,6 +107,7 @@ fun SleepTimerOverlay(
             ) {
                 Text(text = "Play last song to end?", style = interTextStyle(20, bold = true), color = LocalAppColors.current.onBackground)
                 GlassIconButton(
+                    kind = io.github.parthibdebnath.openplayer.ui.skin.ButtonKind.Toggle,
                     icon = if (playLastSongToEnd) Icons.Filled.Check else Icons.Filled.Close,
                     contentDescription = "Toggle play last song to end",
                     onClick = { playLastSongToEnd = !playLastSongToEnd },

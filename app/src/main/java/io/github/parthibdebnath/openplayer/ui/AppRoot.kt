@@ -101,6 +101,7 @@ fun AppRoot(
     // Bumped when File is tapped while already on File, telling that screen to return to its
     // playlist list (so the gear's Settings screen can be dismissed from the nav bar).
     var fileResetSignal by remember { mutableIntStateOf(0) }
+    var settingsSignal by remember { mutableIntStateOf(0) }
 
     // Stops playback when the app leaves the foreground, if the user has background playback off.
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -145,7 +146,9 @@ fun AppRoot(
         animationSpec = tween(COLOR_TRANSITION_MS),
         label = "content colour",
     )
-    val appColors = AppColors(background = background, onBackground = onBackground)
+    // A skin brings its own colours; the user's background colour is openplayer's own look.
+    val skin = io.github.parthibdebnath.openplayer.ui.skin.skinFor(settings.uiTheme)
+    val appColors = skin?.colors ?: AppColors(background = background, onBackground = onBackground)
 
     // The screen recording floating glass refracts; owned here so the tab bar and the gesture
     // overlay, which sit outside the screens, can reach it.
@@ -160,12 +163,64 @@ fun AppRoot(
         LocalTextEntryFocus provides textEntryFocus,
         LocalHaptics provides haptics,
         LocalGlassBackdrop provides backdrop,
-        LocalGlassEnabled provides settings.glassTheming,
+        LocalGlassEnabled provides (settings.glassTheming && skin == null),
+        io.github.parthibdebnath.openplayer.ui.skin.LocalSkin provides skin,
         LocalHideIconBackgrounds provides settings.hideIconBackgrounds,
         LocalScrollLongTitles provides settings.scrollLongTitles,
         LocalAppColors provides appColors,
     ) {
+        // The current tab's screen, wherever the frame puts it.
+        val screens: @Composable (Modifier) -> Unit = { screenModifier ->
+            // Retains each tab's saveable state - where the File tab had navigated to, its
+            // scroll position - so switching back doesn't rebuild from scratch.
+            saveableStateHolder.SaveableStateProvider(selectedTab) {
+                when (selectedTab) {
+                    0 -> FileScreen(
+                        viewModel = viewModel,
+                        authGateManager = authGateManager,
+                        resetSignal = fileResetSignal,
+                        settingsSignal = settingsSignal,
+                        modifier = screenModifier,
+                    )
+                    1 -> PlayScreen(
+                        viewModel = viewModel,
+                        brightnessController = brightnessController,
+                        onGestureChanged = { type, percent ->
+                            gestureType = type
+                            gesturePercent = percent
+                        },
+                        onOpenLibrary = { selectedTab = 0 },
+                        modifier = screenModifier,
+                    )
+                    2 -> SfxScreen(viewModel = viewModel, modifier = screenModifier)
+                }
+            }
+        }
         Box(modifier = modifier.fillMaxSize().background(appColors.background)) {
+          if (skin != null) {
+            val playback by viewModel.playbackUiState.collectAsStateWithLifecycle()
+            skin.Frame(
+                io.github.parthibdebnath.openplayer.ui.skin.FrameModel(
+                    tabs = TOP_LEVEL_TABS,
+                    icons = TOP_LEVEL_ICONS,
+                    selectedTab = selectedTab,
+                    onSelectTab = { index ->
+                        if (index == 0 && selectedTab == 0) fileResetSignal++
+                        selectedTab = index.coerceIn(0, TOP_LEVEL_TABS.lastIndex)
+                    },
+                    playback = playback,
+                    twentyFourHour = settings.twentyFourHourClock,
+                    onPlayPause = { viewModel.togglePlayPause() },
+                    onNext = { viewModel.skipNext() },
+                    onPrevious = { viewModel.skipPrevious() },
+                    onOpenSettings = {
+                        selectedTab = 0
+                        settingsSignal++
+                    },
+                ),
+                screens,
+            )
+          } else {
             // The screens fill the whole display and the tab bar floats over them, rather than
             // taking a strip of its own. Each screen leaves room at the bottom for the bar.
             GlassScreenRoot(
@@ -176,31 +231,10 @@ fun AppRoot(
                         selectedTab = (selectedTab + direction).coerceIn(0, TOP_LEVEL_TABS.lastIndex)
                     },
             ) {
-                val screenModifier = Modifier.fillMaxSize()
-                    .padding(bottom = if (settings.glassTheming) TAB_BAR_RESERVE else PLAIN_TAB_BAR_RESERVE)
-                // Retains each tab's saveable state - where the File tab had navigated to, its
-                // scroll position - so switching back doesn't rebuild from scratch.
-                saveableStateHolder.SaveableStateProvider(selectedTab) {
-                    when (selectedTab) {
-                        0 -> FileScreen(
-                            viewModel = viewModel,
-                            authGateManager = authGateManager,
-                            resetSignal = fileResetSignal,
-                            modifier = screenModifier,
-                        )
-                        1 -> PlayScreen(
-                            viewModel = viewModel,
-                            brightnessController = brightnessController,
-                            onGestureChanged = { type, percent ->
-                                gestureType = type
-                                gesturePercent = percent
-                            },
-                            onOpenLibrary = { selectedTab = 0 },
-                            modifier = screenModifier,
-                        )
-                        2 -> SfxScreen(viewModel = viewModel, modifier = screenModifier)
-                    }
-                }
+                screens(
+                    Modifier.fillMaxSize()
+                        .padding(bottom = if (settings.glassTheming) TAB_BAR_RESERVE else PLAIN_TAB_BAR_RESERVE),
+                )
             }
             GlassPillSwitcher(
                 items = TOP_LEVEL_TABS,
@@ -227,6 +261,7 @@ fun AppRoot(
                         .padding(horizontal = 18.dp, vertical = PLAIN_TAB_BAR_MARGIN)
                 },
             )
+          }
 
             if (openFailed) {
                 GlassNotification(

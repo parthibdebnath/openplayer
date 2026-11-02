@@ -48,7 +48,7 @@ fun SfxScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
         )
         Spacer(Modifier.height(12.dp))
 
-        Column(modifier = Modifier.weight(1f).padding(horizontal = 24.dp)) {
+        Column(modifier = Modifier.weight(1f).padding(horizontal = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current?.gutter ?: 24.dp)) {
             GlassPillSwitcher(
                 items = TAB_LABELS,
                 selectedIndex = selectedTab,

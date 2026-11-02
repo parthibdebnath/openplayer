@@ -28,6 +28,8 @@ import kotlinx.coroutines.withContext
 
 private const val APACHE_2 = "Apache License 2.0"
 private const val OFL = "SIL Open Font License 1.1"
+private const val DEJAVU = "Bitstream Vera / DejaVu fonts licence"
+private const val PUBLIC_DOMAIN = "Public domain (ChicagoFLF)"
 
 private class Component(val name: String, val copyright: String, val licence: String)
 
@@ -46,12 +48,23 @@ private val COMPONENTS = listOf(
         APACHE_2,
     ),
     Component("Liquid glass rendering, adapted from AndroidLiquidGlass", "Copyright 2025 Kyant", APACHE_2),
+    // Typefaces used by the experimental themes.
+    Component("DejaVu Sans (Aqua and Luna themes)", "Copyright 2003 Bitstream, Inc.; DejaVu changes are in the public domain", DEJAVU),
+    Component("Selawik (Metro and Blades themes)", "Copyright 2015 Microsoft Corporation", OFL),
+    Component("M PLUS 1p, M PLUS Rounded 1c (XMB and Channels themes)", "Copyright 2016 The M+ Project Authors", OFL),
+    Component("Source Sans 3 (Cards theme)", "Copyright 2010-2020 Adobe", OFL),
+    Component("Fira Sans (S60 theme)", "Copyright 2012-2018 The Mozilla Foundation, Telefonica S.A., and bBox Type GmbH", OFL),
+    Component("Libre Franklin (Luna theme)", "Copyright 2015 Impallari Type", OFL),
+    Component("ChicagoFLF (iPod and Platinum themes)", "Robin Casady", PUBLIC_DOMAIN),
+    Component("Pixel 95 (Classic theme), drawn for openplayer", "Copyright openplayer contributors", OFL),
 )
 
 /** Licence texts shipped in assets/licenses, keyed by the names above. */
 private val LICENCE_FILES = linkedMapOf(
     APACHE_2 to "licenses/Apache-2.0.txt",
     OFL to "licenses/Inter-OFL.txt",
+    DEJAVU to "licenses/DejaVu-LICENSE.txt",
+    PUBLIC_DOMAIN to "licenses/ChicagoFLF-PublicDomain.txt",
 )
 
 /** Credits for the open-source software openplayer is built with, with the full licence texts. */
@@ -61,7 +74,7 @@ fun LicencesScreen(modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 24.dp)
+            .padding(horizontal = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current?.gutter ?: 24.dp)
             .verticalScroll(rememberScrollState()),
     ) {
         Spacer(Modifier.height(24.dp))

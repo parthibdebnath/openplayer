@@ -34,6 +34,11 @@ fun ToggleRow(
     fontSizeSp: Int = 20,
     iconSize: androidx.compose.ui.unit.Dp = 30.dp,
 ) {
+    val skin = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current
+    if (skin != null) {
+        skin.ToggleRow(label, checked, onToggle, modifier, bold, fontSizeSp)
+        return
+    }
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -56,6 +61,7 @@ fun ToggleRow(
             modifier = Modifier.weight(1f).padding(end = 12.dp),
         )
         GlassIconButton(
+            kind = io.github.parthibdebnath.openplayer.ui.skin.ButtonKind.Toggle,
             icon = if (checked) Icons.Filled.Check else Icons.Filled.Close,
             contentDescription = "$label: ${if (checked) "on" else "off"}",
             onClick = { onToggle(!checked) },

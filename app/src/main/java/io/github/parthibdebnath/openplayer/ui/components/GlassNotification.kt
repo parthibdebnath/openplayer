@@ -46,6 +46,11 @@ fun GlassNotification(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val skin = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current
+    if (skin != null) {
+        skin.Notification(title, message, onConfirm, onDismiss, modifier)
+        return
+    }
     val offset = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
     val scope = rememberCoroutineScope()
     var dismissed by remember { mutableStateOf(false) }
@@ -91,6 +96,7 @@ fun GlassNotification(
             }
         }
         GlassIconButton(
+            kind = io.github.parthibdebnath.openplayer.ui.skin.ButtonKind.Confirm,
             icon = Icons.Filled.Check,
             contentDescription = "Confirm",
             onClick = onConfirm,
