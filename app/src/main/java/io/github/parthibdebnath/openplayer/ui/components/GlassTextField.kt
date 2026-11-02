@@ -182,8 +182,12 @@ fun GlassTextField(
                 },
             readOnly = readOnly,
             inputTransformation = transformation,
-            textStyle = interTextStyle(16, bold = false).copy(color = LocalAppColors.current.onBackground),
-            cursorBrush = SolidColor(LocalAppColors.current.onBackground),
+            textStyle = interTextStyle(16, bold = false).copy(
+                color = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current?.textFieldInk(focused) ?: LocalAppColors.current.onBackground,
+            ),
+            cursorBrush = SolidColor(
+                io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current?.textFieldInk(focused) ?: LocalAppColors.current.onBackground,
+            ),
             keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
             onKeyboardAction = KeyboardActionHandler { currentOnImeAction() },
             lineLimits = if (maxLines <= 1) {

@@ -14,6 +14,7 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import androidx.test.core.app.ActivityScenario
@@ -121,12 +122,12 @@ class ThemeRenderTest {
         settle(2500)
         shot(dir, "4_songs")
 
-        compose.onAllNodes(hasText("Glass Hearts", substring = true)).onFirstOrNull()?.let { longPress(it) }
+        compose.onAllNodes(hasText("Glass Hearts", substring = true, ignoreCase = true)).onFirstOrNull()?.let { longPress(it) }
         settle(700)
         println("THEMERENDER ${theme.name} menu items found: " + compose.onAllNodes(hasText("Play next")).fetchSemanticsNodes().size)
         shot(dir, "5_song_menu")
         // A confirmation: removing a song asks first.
-        compose.onAllNodes(hasText("Remove")).onFirstOrNull()?.performClick()
+        compose.onAllNodes(hasText("Remove", ignoreCase = true)).onFirstOrNull()?.performClick()
         settle(800)
         shot(dir, "5b_confirm")
         tapIfPresent("dialog:dismiss")
@@ -135,10 +136,10 @@ class ThemeRenderTest {
         goToTab("SFX")
         settle(900)
         shot(dir, "6_sfx_speed")
-        compose.onAllNodes(hasText("Reverb")).onFirstOrNull()?.performClick()
+        compose.onAllNodes(hasText("Reverb", ignoreCase = true)).onFirstOrNull()?.performClick()
         settle(900)
         shot(dir, "7_sfx_reverb")
-        compose.onAllNodes(hasText("Speed")).onFirstOrNull()?.performClick()
+        compose.onAllNodes(hasText("Speed", ignoreCase = true)).onFirstOrNull()?.performClick()
         settle(400)
 
         goToTab("File")
@@ -204,9 +205,9 @@ class ThemeRenderTest {
         }
         run(1200)
         goToTab("SFX"); run(1200)
-        compose.onAllNodes(hasText("Reverb")).onFirstOrNull()?.performClick(); run(1200)
-        compose.onAllNodes(hasText("Pitch")).onFirstOrNull()?.performClick(); run(900)
-        compose.onAllNodes(hasText("Speed")).onFirstOrNull()?.performClick(); run(500)
+        compose.onAllNodes(hasText("Reverb", ignoreCase = true)).onFirstOrNull()?.performClick(); run(1200)
+        compose.onAllNodes(hasText("Pitch", ignoreCase = true)).onFirstOrNull()?.performClick(); run(900)
+        compose.onAllNodes(hasText("Speed", ignoreCase = true)).onFirstOrNull()?.performClick(); run(500)
         goToTab("File"); run(500)
         goToTab("Play"); run(1500)
     }
@@ -215,9 +216,13 @@ class ThemeRenderTest {
 
     private fun goToTab(name: String) {
         if (viaWheelMenu(when (name) { "File" -> "Playlists"; "Play" -> "Now Playing"; else -> "Effects" })) return
-        val node = compose.onAllNodes(hasTestTag("tab:$name")).onFirstOrNull()
-            ?: compose.onAllNodes(hasText(name)).onFirstOrNull()
-        node?.performClick()
+        // By its click action rather than a touch: a skin may keep a tab out of sight (the XMB's
+        // categories slide off the edge), and touch can't reach it there.
+        compose.onAllNodes(hasTestTag("tab:$name")).onFirstOrNull()?.let {
+            it.performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
+            return
+        }
+        compose.onAllNodes(hasText(name)).onFirstOrNull()?.performClick()
     }
 
     /** The iPod has no tabs: MENU, until the main menu shows, then the item. */

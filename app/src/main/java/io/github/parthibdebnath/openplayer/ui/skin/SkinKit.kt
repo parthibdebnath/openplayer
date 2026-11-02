@@ -1,6 +1,10 @@
 package io.github.parthibdebnath.openplayer.ui.skin
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.horizontalDrag
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -9,11 +13,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.Role
 import io.github.parthibdebnath.openplayer.util.BatteryMonitor
 import io.github.parthibdebnath.openplayer.util.LocalHaptics
@@ -68,3 +79,36 @@ fun Color.mix(other: Color, amount: Float): Color = lerp(this, other, amount)
 
 /** Lowercase, the way Metro and Zune set their headings. */
 fun String.metroCase(): String = lowercase()
+
+/**
+ * A bar that seeks: tap or drag along it, and the seek is made once, on release (each seek
+ * restarts buffering). [draw] paints it at the fraction shown - the finger's while dragging.
+ */
+@Composable
+fun SeekBar(
+    fraction: Float,
+    onSeek: (Float) -> Unit,
+    modifier: Modifier,
+    draw: DrawScope.(Float) -> Unit,
+) {
+    var drag by remember { mutableStateOf<Float?>(null) }
+    val currentOnSeek by rememberUpdatedState(onSeek)
+    var widthPx by remember { mutableFloatStateOf(1f) }
+    val shown = drag ?: fraction.coerceIn(0f, 1f)
+    Canvas(
+        modifier
+            .onSizeChanged { widthPx = it.width.toFloat().coerceAtLeast(1f) }
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    drag = (down.position.x / widthPx).coerceIn(0f, 1f)
+                    horizontalDrag(down.id) { change ->
+                        change.consume()
+                        drag = (change.position.x / widthPx).coerceIn(0f, 1f)
+                    }
+                    drag?.let { currentOnSeek(it) }
+                    drag = null
+                }
+            },
+    ) { draw(shown) }
+}

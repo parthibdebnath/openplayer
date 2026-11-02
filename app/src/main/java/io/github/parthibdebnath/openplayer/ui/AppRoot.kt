@@ -199,6 +199,11 @@ fun AppRoot(
         Box(modifier = modifier.fillMaxSize().background(appColors.background)) {
           if (skin != null) {
             val playback by viewModel.playbackUiState.collectAsStateWithLifecycle()
+            Box(
+                Modifier.fillMaxSize().tabSwipe(enabled = skin.swipesBetweenTabs) { direction ->
+                    selectedTab = (selectedTab + direction).coerceIn(0, TOP_LEVEL_TABS.lastIndex)
+                },
+            ) {
             skin.Frame(
                 io.github.parthibdebnath.openplayer.ui.skin.FrameModel(
                     tabs = TOP_LEVEL_TABS,
@@ -221,6 +226,7 @@ fun AppRoot(
                 ),
                 screens,
             )
+            }
           } else {
             // The screens fill the whole display and the tab bar floats over them, rather than
             // taking a strip of its own. Each screen leaves room at the bottom for the bar.

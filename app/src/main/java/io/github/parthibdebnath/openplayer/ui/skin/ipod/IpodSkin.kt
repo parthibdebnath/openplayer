@@ -142,6 +142,7 @@ object IpodSkin : Skin() {
     override val colors = AppColors(background = Lcd.panel, onBackground = Lcd.ink)
     override val showsHeader = false
     override val showsMiniPlayer = false
+    override val swipesBetweenTabs = false
     override val gutter: Dp = 7.dp
     override val idleOverflow: TextOverflow = TextOverflow.Clip
 

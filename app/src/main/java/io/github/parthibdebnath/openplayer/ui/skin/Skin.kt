@@ -247,6 +247,9 @@ abstract class Skin {
     @Composable
     abstract fun textField(modifier: Modifier, focused: Boolean): Modifier
 
+    /** The text colour inside a text field, where the field isn't the page's own colour. */
+    open fun textFieldInk(focused: Boolean): Color? = null
+
     /** Favourites, tags and playlists on the playlists screen. */
     @Composable
     abstract fun Collection(entries: List<CollectionEntry>, emptyMessage: String?, modifier: Modifier)
@@ -262,6 +265,9 @@ abstract class Skin {
 
     /** Gutter the screens leave at their sides inside this skin's frame. */
     open val gutter: Dp = 18.dp
+
+    /** Whether a sideways swipe moves between tabs, as it does in openplayer's own look. */
+    open val swipesBetweenTabs: Boolean = true
 
     /** Whether screens show [Header] at all; a frame with its own clock and title can drop it. */
     open val showsHeader: Boolean = true
