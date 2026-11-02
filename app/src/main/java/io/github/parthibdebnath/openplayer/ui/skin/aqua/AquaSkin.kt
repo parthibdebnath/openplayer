@@ -232,7 +232,7 @@ object AquaSkin : Skin() {
         ) {
             // A gel drop in place of the Apple: this is openplayer's own menu.
             Canvas(Modifier.size(14.dp)) { drawGelCircle(center, size.minDimension / 2f, Gels.blue, shadow = false) }
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(8.dp))
             MenuTitle("openplayer", bold = true, tag = "frame:menu", items = listOf(
                 ContextMenuItem("Preferences…", onClick = model.onOpenSettings),
             ))
@@ -251,6 +251,8 @@ object AquaSkin : Skin() {
                 "$day ${time.time}${time.amPm?.let { " $it" }.orEmpty()}",
                 style = menuText(false),
                 color = Color.Black,
+                maxLines = 1,
+                softWrap = false,
             )
         }
     }
@@ -279,7 +281,7 @@ object AquaSkin : Skin() {
                     .then(if (tag != null) Modifier.testTag(tag) else Modifier)
                     .then(if (open) Modifier.background(AquaColors.selection) else Modifier)
                     .skinTap { open = true }
-                    .padding(horizontal = 9.dp, vertical = 3.dp),
+                    .padding(horizontal = 7.dp, vertical = 3.dp),
             )
             if (open) {
                 Popup(

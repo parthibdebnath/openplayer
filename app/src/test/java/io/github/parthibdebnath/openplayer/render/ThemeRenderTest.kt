@@ -180,7 +180,8 @@ class ThemeRenderTest {
             tapIfPresent("frame:menu")
             settle(700)
             shot(dir, "9_frame_menu")
-            pressBack()
+            // Back to the window with focus - the menu's popup - which closes it.
+            androidx.test.espresso.Espresso.pressBackUnconditionally()
             settle(500)
         }
         // Back to the playlists for the next theme.
@@ -360,10 +361,6 @@ class ThemeRenderTest {
 
     /** How navigation waits: plain settling for stills, captured frames while recording. */
     private var step: (Long) -> Unit = ::settle
-
-    private fun pressBack() {
-        scenario?.onActivity { it.onBackPressedDispatcher.onBackPressed() }
-    }
 
     private fun androidx.compose.ui.test.SemanticsNodeInteractionCollection.onFirstOrNull(): SemanticsNodeInteraction? =
         if (fetchSemanticsNodes().isNotEmpty()) this[0] else null
