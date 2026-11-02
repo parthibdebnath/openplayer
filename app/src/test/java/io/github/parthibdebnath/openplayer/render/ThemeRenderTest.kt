@@ -160,6 +160,14 @@ class ThemeRenderTest {
             settle(400)
             shot(dir, "9_frame_menu")
         }
+        // webOS's card view.
+        if (compose.onAllNodes(hasTestTag("cards:gesture")).fetchSemanticsNodes().isNotEmpty()) {
+            compose.onAllNodes(hasTestTag("cards:gesture")).onFirstOrNull()?.performClick()
+            settle(700)
+            shot(dir, "9b_card_view")
+            compose.onAllNodes(hasTestTag("card:File")).onFirstOrNull()?.performClick()
+            settle(500)
+        }
         // The frame's own menu (a Start menu, an Apple menu...), where the skin has one.
         if (compose.onAllNodes(hasTestTag("frame:menu")).fetchSemanticsNodes().isNotEmpty()) {
             tapIfPresent("frame:menu")
@@ -223,6 +231,15 @@ class ThemeRenderTest {
             if (androidx.compose.ui.semantics.SemanticsActions.OnClick in it.fetchSemanticsNode().config) {
                 it.performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
             }
+            return
+        }
+        // webOS has no tabs: up into card view, and open the card.
+        if (compose.onAllNodes(hasTestTag("cards:gesture")).fetchSemanticsNodes().isNotEmpty()) {
+            compose.onAllNodes(hasTestTag("cards:gesture")).onFirstOrNull()?.performClick()
+            settle(500)
+            compose.onAllNodes(hasTestTag("card:$name")).onFirstOrNull()
+                ?.performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
+            settle(400)
             return
         }
         compose.onAllNodes(hasText(name)).onFirstOrNull()?.performClick()
