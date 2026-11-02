@@ -752,8 +752,7 @@ object LunaSkin : Skin() {
             drawRoundRect(Brush.horizontalGradient(listOf(Color(0xFFC9D8FC), Color(0xFFBBCEF8), Color(0xFFB0C6F5)), startX = rect.left, endX = rect.right), rect.topLeft, rect.size, CornerRadius(px(3f)))
             drawRoundRect(Color(0xFF9DB6E8), rect.topLeft, rect.size, CornerRadius(px(3f)), style = Stroke(px(1f)))
             // The grip.
-            for (i in -2..2 step 1) {
-                if (i % 1 != 0) continue
+            for (i in -2..2) {
                 val y = rect.center.y + i * px(2f)
                 drawLine(Color(0xFFEEF4FE), Offset(rect.left + px(3f), y), Offset(rect.right - px(3f), y), px(1f))
                 drawLine(Color(0xFF8CB0F8), Offset(rect.left + px(3f), y + px(1f)), Offset(rect.right - px(3f), y + px(1f)), px(1f))

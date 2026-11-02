@@ -11,7 +11,6 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -275,9 +274,4 @@ abstract class Skin {
     /** Whether the File and SFX screens show [MiniPlayer]; a frame with its own transport drops it. */
     open val showsMiniPlayer: Boolean = true
 
-    /** Text colour for secondary text, where the app would use content at reduced alpha. */
-    open fun secondary(alpha: Float): Color = colors.onBackground.copy(alpha = alpha)
-
-    /** How a marquee title behaves when it doesn't fit. */
-    open val idleOverflow: TextOverflow = TextOverflow.Ellipsis
 }

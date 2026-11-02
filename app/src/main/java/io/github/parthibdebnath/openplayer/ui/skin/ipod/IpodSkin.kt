@@ -144,7 +144,6 @@ object IpodSkin : Skin() {
     override val showsMiniPlayer = false
     override val swipesBetweenTabs = false
     override val gutter: Dp = 7.dp
-    override val idleOverflow: TextOverflow = TextOverflow.Clip
 
     private fun chicago(size: Float) = TextStyle(fontFamily = SkinFonts.chicago, fontSize = size.sp, lineHeight = (size * 1.28f).sp)
 

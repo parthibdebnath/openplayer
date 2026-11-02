@@ -14,6 +14,7 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
@@ -147,6 +148,12 @@ class ThemeRenderTest {
         openSettings()
         settle(900)
         shot(dir, "8_settings")
+        // The theme picker, further down Settings.
+        compose.onAllNodes(hasTestTag("theme:${UiTheme.S60.name}")).onFirstOrNull()?.let {
+            it.performScrollTo()
+            settle(500)
+            shot(dir, "8b_theme_picker")
+        }
 
         // The iPod's main menu.
         if (compose.onAllNodes(hasTestTag("ipod:wheel")).fetchSemanticsNodes().isNotEmpty()) {
@@ -184,8 +191,9 @@ class ThemeRenderTest {
     }
 
     /**
-     * A walkthrough: Play, the upcoming list opening, a song skipped, the tabs in turn, a
-     * playlist opened and scrolled, the effects. Every frame is 1/30 s of the app's own clock.
+     * A walkthrough of the theme, frame by frame at 30 fps of the app's own clock: Play with the
+     * song moving along, the library and a playlist scrolled, the effects pages, and whatever the
+     * theme does that's its own - the iPod's wheel turned, webOS's cards thrown away.
      */
     private fun recordWalkthrough(theme: UiTheme) {
         val dir = File(outRoot, "video_" + theme.name.lowercase()).apply { mkdirs() }
@@ -193,31 +201,101 @@ class ThemeRenderTest {
         fun run(ms: Long) {
             val frames = (ms / FRAME_MS).toInt().coerceAtLeast(1)
             repeat(frames) {
-                compose.mainClock.advanceTimeBy(FRAME_MS)
-                shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(FRAME_MS))
+                advanceOneFrame()
                 capture(File(dir, "f%05d.png".format(frame++)))
             }
         }
-        goToTab("Play")
-        publishPlayback(expandedHint = false)
-        run(1200)
-        tapIfPresent("upcoming:toggle"); run(1300)
-        tapIfPresent("upcoming:toggle"); run(900)
-        // Playback moving along a few seconds.
-        repeat(20) { i -> publishPlayback(positionOffsetMs = i * 250L); run(66) }
-        goToTab("File"); run(1300)
-        openPlaylist("Late Night Drive")
-        run(1200)
-        compose.onAllNodes(hasTestTag("songs:list")).onFirstOrNull()?.performTouchInput {
-            swipe(Offset(centerX, bottom - 80f), Offset(centerX, top + 80f), 500)
+        step = ::run
+        try {
+            goToTab("Play")
+            publishPlayback()
+            run(1400)
+            if (compose.onAllNodes(hasTestTag("upcoming:toggle")).fetchSemanticsNodes().isNotEmpty()) {
+                tapIfPresent("upcoming:toggle"); run(1300)
+                tapIfPresent("upcoming:toggle"); run(900)
+            }
+            // The song playing on.
+            repeat(30) { i -> publishPlayback(positionOffsetMs = i * 200L); run(66) }
+            if (theme == UiTheme.IPOD) {
+                // The wheel turned on Now Playing: the volume.
+                wheelSpin(140f, 24, ::run)
+                run(900)
+            }
+            goToTab("File"); run(1300)
+            if (theme == UiTheme.IPOD) {
+                // MENU, and the wheel moving down the main menu.
+                pressWheel(top = true); run(700)
+                wheelSpin(75f, 18, ::run); run(500)
+                wheelSpin(-75f, 18, ::run); run(400)
+                compose.onAllNodes(hasTestTag("ipod:menu:Playlists")).onFirstOrNull()?.performClick(); run(900)
+            }
+            openPlaylist("Late Night Drive"); run(1200)
+            compose.onAllNodes(hasTestTag("songs:list")).onFirstOrNull()?.let { list ->
+                dragFrames(list, fromFraction = 0.85f, toFraction = 0.25f, frames = 16, run = ::run)
+                run(1000)
+            }
+            if (theme == UiTheme.CARDS) {
+                // Card view, a card flicked away, and back into another.
+                tapIfPresent("cards:gesture"); run(1100)
+                compose.onAllNodes(hasTestTag("card:File")).onFirstOrNull()?.let { card ->
+                    dragFrames(card, fromFraction = 0.6f, toFraction = -0.6f, frames = 10, run = ::run)
+                    run(1400)
+                }
+                compose.onAllNodes(hasTestTag("card:File")).onFirstOrNull()?.performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
+                run(900)
+            }
+            goToTab("SFX"); run(1200)
+            compose.onAllNodes(hasText("Reverb", ignoreCase = true)).onFirstOrNull()?.performClick(); run(1200)
+            compose.onAllNodes(hasText("Pitch", ignoreCase = true)).onFirstOrNull()?.performClick(); run(900)
+            compose.onAllNodes(hasText("Speed", ignoreCase = true)).onFirstOrNull()?.performClick(); run(600)
+            goToTab("Play"); run(1800)
+        } finally {
+            step = ::settle
         }
-        run(1200)
-        goToTab("SFX"); run(1200)
-        compose.onAllNodes(hasText("Reverb", ignoreCase = true)).onFirstOrNull()?.performClick(); run(1200)
-        compose.onAllNodes(hasText("Pitch", ignoreCase = true)).onFirstOrNull()?.performClick(); run(900)
-        compose.onAllNodes(hasText("Speed", ignoreCase = true)).onFirstOrNull()?.performClick(); run(500)
-        goToTab("File"); run(500)
-        goToTab("Play"); run(1500)
+    }
+
+    /** Advances the app's clock by one frame. */
+    private fun advanceOneFrame() {
+        compose.mainClock.advanceTimeBy(FRAME_MS)
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(FRAME_MS))
+        Thread.sleep(4)
+    }
+
+    /** A vertical drag across [node], a step per frame, so the video shows it move. */
+    private fun dragFrames(node: SemanticsNodeInteraction, fromFraction: Float, toFraction: Float, frames: Int, run: (Long) -> Unit) {
+        node.performTouchInput { down(Offset(centerX, height * fromFraction)) }
+        run(FRAME_MS)
+        for (i in 1..frames) {
+            val f = fromFraction + (toFraction - fromFraction) * i / frames
+            node.performTouchInput { moveTo(Offset(centerX, height * f)) }
+            run(FRAME_MS)
+        }
+        node.performTouchInput { up() }
+    }
+
+    /** Turns the iPod's wheel by [degrees] (clockwise is positive), over [frames] frames. */
+    private fun wheelSpin(degrees: Float, frames: Int, run: (Long) -> Unit) {
+        val wheel = compose.onAllNodes(hasTestTag("ipod:wheel")).onFirstOrNull() ?: return
+        val start = -150f
+        fun point(angle: Float, w: Float, h: Float): Offset {
+            val r = minOf(w, h) * 0.36f
+            val a = Math.toRadians(angle.toDouble())
+            return Offset(w / 2f + r * kotlin.math.cos(a).toFloat(), h / 2f + r * kotlin.math.sin(a).toFloat())
+        }
+        wheel.performTouchInput { down(point(start, width.toFloat(), height.toFloat())) }
+        run(FRAME_MS)
+        for (i in 1..frames) {
+            val angle = start + degrees * i / frames
+            wheel.performTouchInput { moveTo(point(angle, width.toFloat(), height.toFloat())) }
+            run(FRAME_MS)
+        }
+        wheel.performTouchInput { up() }
+    }
+
+    private fun pressWheel(top: Boolean) {
+        compose.onAllNodes(hasTestTag("ipod:wheel")).onFirstOrNull()?.performTouchInput {
+            click(Offset(centerX, if (top) this.top + height * 0.1f else this.bottom - height * 0.1f))
+        }
     }
 
     // --- helpers --------------------------------------------------------------------------------
@@ -236,10 +314,10 @@ class ThemeRenderTest {
         // webOS has no tabs: up into card view, and open the card.
         if (compose.onAllNodes(hasTestTag("cards:gesture")).fetchSemanticsNodes().isNotEmpty()) {
             compose.onAllNodes(hasTestTag("cards:gesture")).onFirstOrNull()?.performClick()
-            settle(500)
+            step(700)
             compose.onAllNodes(hasTestTag("card:$name")).onFirstOrNull()
                 ?.performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
-            settle(400)
+            step(400)
             return
         }
         compose.onAllNodes(hasText(name)).onFirstOrNull()?.performClick()
@@ -251,10 +329,10 @@ class ThemeRenderTest {
         repeat(4) {
             if (compose.onAllNodes(hasTestTag("ipod:menu:$item")).fetchSemanticsNodes().isNotEmpty()) return@repeat
             wheel.performTouchInput { click(Offset(centerX, top + height * 0.1f)) }
-            settle(300)
+            step(400)
         }
         compose.onAllNodes(hasTestTag("ipod:menu:$item")).onFirstOrNull()?.performClick()
-        settle(300)
+        step(400)
         return true
     }
 
@@ -279,6 +357,9 @@ class ThemeRenderTest {
     }
 
     private var scenario: ActivityScenario<MainActivity>? = null
+
+    /** How navigation waits: plain settling for stills, captured frames while recording. */
+    private var step: (Long) -> Unit = ::settle
 
     private fun pressBack() {
         scenario?.onActivity { it.onBackPressedDispatcher.onBackPressed() }

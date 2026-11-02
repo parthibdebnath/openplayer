@@ -20,9 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.Role
@@ -74,11 +72,6 @@ fun batteryPercent(): Int {
     val percent by BatteryMonitor.percent.collectAsState()
     return percent
 }
-
-fun Color.mix(other: Color, amount: Float): Color = lerp(this, other, amount)
-
-/** Lowercase, the way Metro and Zune set their headings. */
-fun String.metroCase(): String = lowercase()
 
 /**
  * A bar that seeks: tap or drag along it, and the seek is made once, on release (each seek
