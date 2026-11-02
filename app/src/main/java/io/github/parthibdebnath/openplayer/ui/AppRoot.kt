@@ -217,6 +217,7 @@ fun AppRoot(
                         selectedTab = 0
                         settingsSignal++
                     },
+                    onSwapUpcoming = { viewModel.replaceUpcomingSlot(it) },
                 ),
                 screens,
             )

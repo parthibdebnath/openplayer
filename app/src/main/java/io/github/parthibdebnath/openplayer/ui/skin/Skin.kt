@@ -47,6 +47,8 @@ class FrameModel(
     val onPrevious: () -> Unit,
     /** Opens Settings (on the File tab), for frames with a menu or softkey of their own. */
     val onOpenSettings: () -> Unit,
+    /** Swaps the upcoming song in this slot for the next available one. */
+    val onSwapUpcoming: (Int) -> Unit = {},
 )
 
 /** Everything the Play screen shows and does, for a skin that lays it out its own way. */

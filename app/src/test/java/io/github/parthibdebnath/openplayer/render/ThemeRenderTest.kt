@@ -11,6 +11,7 @@ import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
@@ -142,10 +143,22 @@ class ThemeRenderTest {
 
         goToTab("File")
         settle(400)
-        tapIfPresent("nav:settings")
+        openSettings()
         settle(900)
         shot(dir, "8_settings")
 
+        // The iPod's main menu.
+        if (compose.onAllNodes(hasTestTag("ipod:wheel")).fetchSemanticsNodes().isNotEmpty()) {
+            val wheel = compose.onAllNodes(hasTestTag("ipod:wheel")).onFirstOrNull()!!
+            repeat(3) {
+                if (compose.onAllNodes(hasTestTag("ipod:menu:Playlists")).fetchSemanticsNodes().isEmpty()) {
+                    wheel.performTouchInput { click(Offset(centerX, top + height * 0.1f)) }
+                    settle(300)
+                }
+            }
+            settle(400)
+            shot(dir, "9_frame_menu")
+        }
         // The frame's own menu (a Start menu, an Apple menu...), where the skin has one.
         if (compose.onAllNodes(hasTestTag("frame:menu")).fetchSemanticsNodes().isNotEmpty()) {
             tapIfPresent("frame:menu")
@@ -155,7 +168,7 @@ class ThemeRenderTest {
             settle(500)
         }
         // Back to the playlists for the next theme.
-        tapIfPresent("nav:settings")
+        if (compose.onAllNodes(hasTestTag("ipod:wheel")).fetchSemanticsNodes().isEmpty()) tapIfPresent("nav:settings")
         settle(400)
         goToTab("Play")
         settle(600)
@@ -201,9 +214,28 @@ class ThemeRenderTest {
     // --- helpers --------------------------------------------------------------------------------
 
     private fun goToTab(name: String) {
+        if (viaWheelMenu(when (name) { "File" -> "Playlists"; "Play" -> "Now Playing"; else -> "Effects" })) return
         val node = compose.onAllNodes(hasTestTag("tab:$name")).onFirstOrNull()
             ?: compose.onAllNodes(hasText(name)).onFirstOrNull()
         node?.performClick()
+    }
+
+    /** The iPod has no tabs: MENU, until the main menu shows, then the item. */
+    private fun viaWheelMenu(item: String): Boolean {
+        val wheel = compose.onAllNodes(hasTestTag("ipod:wheel")).onFirstOrNull() ?: return false
+        repeat(4) {
+            if (compose.onAllNodes(hasTestTag("ipod:menu:$item")).fetchSemanticsNodes().isNotEmpty()) return@repeat
+            wheel.performTouchInput { click(Offset(centerX, top + height * 0.1f)) }
+            settle(300)
+        }
+        compose.onAllNodes(hasTestTag("ipod:menu:$item")).onFirstOrNull()?.performClick()
+        settle(300)
+        return true
+    }
+
+    private fun openSettings() {
+        if (viaWheelMenu("Settings")) return
+        tapIfPresent("nav:settings")
     }
 
     /** Held long enough for a long press, on the app's own (paused) clock. */
