@@ -15,7 +15,6 @@ background colour only apply to it.
 | XMB | PSP / PS3 | Deep blue backdrop with a flowing ribbon of light, categories as a row of glowing icons with the chosen one's contents listed below, options panels, face-button hints. |
 | Blades | Xbox 360 (2005) | One coloured blade per tab; the others stacked at the edges as spines and sliding across on a tab change; highlight-bar menus; controller legend (B goes back, Y plays/pauses). |
 | Channels | Wii menu | Playlists as rounded channels (with empty ones), the grey dock with the clock and round buttons for the tabs, a channel-preview Now Playing with *Wii Menu* and *Start*. |
-| Cards | Palm webOS | The app as a card: swipe up from the gesture area (or tap its light bar) for card view — real snapshots of each tab to open, or flick up and away; swipe left along it to go back. Up-next songs are cards you flick away to skip. |
 | S60 | Nokia Symbian (S60 3rd edition) | Status pane with signal/battery bars, navi-pane tabs with arrows, chunky icons and the highlight bar, softkeys: Options menu, selection key for play/pause, Back/Exit. |
 
 ## How it's built

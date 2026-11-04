@@ -16,7 +16,6 @@ enum class UiTheme(val label: String, val inspiration: String) {
     XMB("XMB", "PSP / PS3"),
     BLADES("Blades", "Xbox 360"),
     CHANNELS("Channels", "Wii menu"),
-    CARDS("Cards", "Palm webOS"),
     S60("S60", "Nokia Symbian"),
     ;
 

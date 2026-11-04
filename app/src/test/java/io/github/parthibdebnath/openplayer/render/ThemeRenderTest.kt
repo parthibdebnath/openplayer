@@ -182,14 +182,6 @@ class ThemeRenderTest {
             settle(400)
             shot(dir, "9_frame_menu")
         }
-        // webOS's card view.
-        if (compose.onAllNodes(hasTestTag("cards:gesture")).fetchSemanticsNodes().isNotEmpty()) {
-            compose.onAllNodes(hasTestTag("cards:gesture")).onFirstOrNull()?.performClick()
-            settle(700)
-            shot(dir, "9b_card_view")
-            compose.onAllNodes(hasTestTag("card:File")).onFirstOrNull()?.performClick()
-            settle(500)
-        }
         // The frame's own menu (a Start menu, an Apple menu...), where the skin has one.
         if (compose.onAllNodes(hasTestTag("frame:menu")).fetchSemanticsNodes().isNotEmpty()) {
             tapIfPresent("frame:menu")
@@ -209,7 +201,7 @@ class ThemeRenderTest {
     /**
      * A walkthrough of the theme, frame by frame at 30 fps of the app's own clock: Play with the
      * song moving along, the library and a playlist scrolled, the effects pages, and whatever the
-     * theme does that's its own - the iPod's wheel turned, webOS's cards thrown away.
+     * theme does that's its own - the iPod's wheel turned.
      */
     private fun recordWalkthrough(theme: UiTheme) {
         val dir = File(outRoot, "video_" + theme.name.lowercase()).apply { mkdirs() }
@@ -249,16 +241,6 @@ class ThemeRenderTest {
             compose.onAllNodes(hasTestTag("songs:list")).onFirstOrNull()?.let { list ->
                 dragFrames(list, fromFraction = 0.85f, toFraction = 0.25f, frames = 16, run = ::run)
                 run(1000)
-            }
-            if (theme == UiTheme.CARDS) {
-                // Card view, a card flicked away, and back into another.
-                tapIfPresent("cards:gesture"); run(1100)
-                compose.onAllNodes(hasTestTag("card:File")).onFirstOrNull()?.let { card ->
-                    dragFrames(card, fromFraction = 0.6f, toFraction = -0.6f, frames = 10, run = ::run)
-                    run(1400)
-                }
-                compose.onAllNodes(hasTestTag("card:File")).onFirstOrNull()?.performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
-                run(900)
             }
             goToTab("SFX"); run(1200)
             compose.onAllNodes(hasText("Reverb", ignoreCase = true)).onFirstOrNull()?.performClick(); run(1200)
@@ -325,15 +307,6 @@ class ThemeRenderTest {
             if (androidx.compose.ui.semantics.SemanticsActions.OnClick in it.fetchSemanticsNode().config) {
                 it.performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
             }
-            return
-        }
-        // webOS has no tabs: up into card view, and open the card.
-        if (compose.onAllNodes(hasTestTag("cards:gesture")).fetchSemanticsNodes().isNotEmpty()) {
-            compose.onAllNodes(hasTestTag("cards:gesture")).onFirstOrNull()?.performClick()
-            step(700)
-            compose.onAllNodes(hasTestTag("card:$name")).onFirstOrNull()
-                ?.performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
-            step(400)
             return
         }
         compose.onAllNodes(hasText(name)).onFirstOrNull()?.performClick()

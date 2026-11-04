@@ -16,7 +16,6 @@ import io.github.parthibdebnath.openplayer.R
  * - Chicago (iPod, Platinum) - ChicagoFLF.
  * - Segoe (Metro, Blades) - Selawik, Microsoft's own open Segoe stand-in.
  * - Rodin (XMB, Channels) - M PLUS 1p, and M PLUS Rounded for the Wii's clock.
- * - Prelude (Cards) - Source Sans.
  * - Nokia Sans (S60) - Fira Sans, from the same type designer's lineage.
  */
 object SkinFonts {
@@ -51,11 +50,6 @@ object SkinFonts {
         Font(R.font.rounded_light, FontWeight.Light),
         Font(R.font.rounded_regular, FontWeight.Normal),
         Font(R.font.rounded_bold, FontWeight.Bold),
-    )
-    val prelude = FontFamily(
-        Font(R.font.prelude_regular, FontWeight.Normal),
-        Font(R.font.prelude_semibold, FontWeight.SemiBold),
-        Font(R.font.prelude_bold, FontWeight.Bold),
     )
     val s60 = FontFamily(
         Font(R.font.s60_regular, FontWeight.Normal),

@@ -51,7 +51,6 @@ private val COMPONENTS = listOf(
     Component("DejaVu Sans (Aqua and Luna themes)", "Copyright 2003 Bitstream, Inc.; DejaVu changes are in the public domain", DEJAVU),
     Component("Selawik (Metro and Blades themes)", "Copyright 2015 Microsoft Corporation", OFL),
     Component("M PLUS 1p, M PLUS Rounded 1c (XMB and Channels themes)", "Copyright 2016 The M+ Project Authors", OFL),
-    Component("Source Sans 3 (Cards theme)", "Copyright 2010-2020 Adobe", OFL),
     Component("Fira Sans (S60 theme)", "Copyright 2012-2018 The Mozilla Foundation, Telefonica S.A., and bBox Type GmbH", OFL),
     Component("Libre Franklin (Luna theme)", "Copyright 2015 Impallari Type", OFL),
     Component("ChicagoFLF (iPod and Platinum themes)", "Robin Casady", PUBLIC_DOMAIN),
