@@ -949,6 +949,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun seekTo(positionMs: Long) = playbackEngine.seekTo(positionMs)
     fun replaceUpcomingSlot(index: Int) = playbackEngine.replaceUpcomingSlot(index)
     fun reorderUpcoming(from: Int, to: Int) = playbackEngine.reorderUpcoming(from, to)
+    fun restoreUpcomingSlot(index: Int, songId: Long) = playbackEngine.restoreUpcomingSlot(index, songId)
 
     fun setShuffleEnabled(enabled: Boolean) = playbackEngine.setShuffleEnabled(enabled)
 

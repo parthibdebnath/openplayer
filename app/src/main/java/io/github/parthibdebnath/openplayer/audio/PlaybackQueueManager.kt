@@ -11,6 +11,32 @@ enum class PlayOrder { SEQUENTIAL, SHUFFLED }
 /** Number of upcoming songs shown on the main play screen when expanded. */
 const val VISIBLE_UPCOMING_COUNT = 5
 
+/** The most swaps remembered for bringing songs back; the oldest are forgotten first. */
+private const val MAX_REMEMBERED_SWAPS = 200
+
+/**
+ * One use of the swap arrow on the next-5 list: [incoming] took the place of [displaced]. Kept so
+ * a swipe on [incoming] can put [displaced] back - see [PlaybackQueueManager.undoSwap].
+ *
+ * Keyed by song rather than by slot, because slots move: once the current song finishes, every
+ * song in the list is one place nearer the top, and a record of "slot 3" would then point at the
+ * wrong row.
+ */
+data class UpcomingSwap(
+    val incoming: Song,
+    val displaced: Song,
+    /** Whether [displaced] was added to the end of the generated order, rather than already in it. */
+    val displacedAppended: Boolean,
+    /** Whether [incoming] was a queued song, rather than one from the generated order. */
+    val incomingFromQueue: Boolean,
+    /**
+     * The song [incoming] came straight after, just out of view, before the swap took it: undoing
+     * puts it back behind that song again, so the order is what it would have been. Null if
+     * unknown, in which case it goes back to just past the visible list.
+     */
+    val incomingAfter: Song? = null,
+)
+
 /**
  * Owns the play queue: the active pool of songs (single or merged multi-playlist), shuffle
  * (seeded, reproducible) vs sequential ordering, repeat mode, the user-explicit "queue next"
@@ -36,12 +62,20 @@ class PlaybackQueueManager {
     val upcoming: MutableList<Song> = mutableListOf()
     private val history: MutableList<Song> = mutableListOf()
 
+    /** Swaps made from the next-5 list, oldest first; see [undoSwap]. */
+    private val swaps: MutableList<UpcomingSwap> = mutableListOf()
+
     /**
      * Bumped on every change to the queue's shape, so persistence can tell when there's something
      * new to save without diffing thousands of ids every time it checks.
      */
     var version: Long = 0L
         private set
+
+    // Which of the visible songs can be swiped back, worked out once per change to the queue
+    // rather than on each of the several UI refreshes a second.
+    private var restorableVersion = -1L
+    private var restorable: List<Boolean> = emptyList()
 
     /** Told after every change, so the engine can save the queue as it now stands. */
     var onChanged: (() -> Unit)? = null
@@ -79,6 +113,9 @@ class PlaybackQueueManager {
     /** Songs already played this session, oldest first, for persisting the queue across restarts. */
     fun historySnapshot(): List<Song> = history.toList()
 
+    /** Swaps that can still be undone, oldest first, for persisting the queue across restarts. */
+    fun swapSnapshot(): List<UpcomingSwap> = swaps.filter { isWaiting(it.incoming.id) && isWaiting(it.displaced.id) }
+
     /** Rebuilds the queue exactly as it was, without touching playback - see [PlaybackEngine.restoreIfNeeded]. */
     fun restore(
         pool: List<Song>,
@@ -89,6 +126,7 @@ class PlaybackQueueManager {
         played: List<Song>,
         repeat: RepeatMode,
         order: PlayOrder,
+        swapHistory: List<UpcomingSwap> = emptyList(),
     ) {
         this.pool = pool
         playlistLabel = label
@@ -101,6 +139,8 @@ class PlaybackQueueManager {
         explicitQueue += queued
         upcoming.clear()
         upcoming += upcomingSongs
+        swaps.clear()
+        swaps += swapHistory.takeLast(MAX_REMEMBERED_SWAPS)
         changed()
     }
 
@@ -115,6 +155,7 @@ class PlaybackQueueManager {
         playOrder = order
         history.clear()
         explicitQueue.clear()
+        swaps.clear()
         changed()
         if (songs.isEmpty()) {
             current = null
@@ -144,6 +185,8 @@ class PlaybackQueueManager {
             current?.let { add(it.id) }
             addAll(excluding)
         }
+        // A fresh order: what a song "replaced" in the old one no longer means anything.
+        swaps.clear()
         upcoming.clear()
         upcoming += when (playOrder) {
             PlayOrder.SEQUENTIAL -> {
@@ -212,6 +255,8 @@ class PlaybackQueueManager {
             else -> null
         }
         current = next
+        // Playing now, so no longer in the list to be swiped.
+        if (next != null) swaps.removeAll { it.incoming.id == next.id }
         changed()
         return next
     }
@@ -240,24 +285,129 @@ class PlaybackQueueManager {
         val hiddenIndex = VISIBLE_UPCOMING_COUNT
         if (visibleIndex !in 0 until hiddenIndex || hiddenIndex >= total) return
 
-        if (visibleIndex >= explicitCount) {
+        // What the song about to be swapped in follows, before anything moves.
+        val after = if (hiddenIndex - 1 < explicitCount) explicitQueue[hiddenIndex - 1] else upcoming[hiddenIndex - 1 - explicitCount]
+        val swap = if (visibleIndex >= explicitCount) {
             val localIndex = visibleIndex - explicitCount
             val localHidden = hiddenIndex - explicitCount
             val displaced = upcoming[localIndex]
-            upcoming[localIndex] = upcoming.removeAt(localHidden)
+            val incoming = upcoming.removeAt(localHidden)
+            upcoming[localIndex] = incoming
             upcoming.add(displaced)
+            UpcomingSwap(incoming, displaced, displacedAppended = true, incomingFromQueue = false, incomingAfter = after)
         } else {
             val displaced = explicitQueue[visibleIndex]
+            val fromQueue = hiddenIndex < explicitCount
             // Removing from further down never shifts the slot being replaced.
-            val incoming = if (hiddenIndex < explicitCount) {
+            val incoming = if (fromQueue) {
                 explicitQueue.removeAt(hiddenIndex)
             } else {
                 upcoming.removeAt(hiddenIndex - explicitCount)
             }
             explicitQueue[visibleIndex] = incoming
-            if (upcoming.none { it.id == displaced.id }) upcoming.add(displaced)
+            val appended = upcoming.none { it.id == displaced.id }
+            if (appended) upcoming.add(displaced)
+            UpcomingSwap(incoming, displaced, displacedAppended = appended, incomingFromQueue = fromQueue, incomingAfter = after)
+        }
+        // A queued song swapped for its own copy further down has nothing to bring back.
+        if (swap.incoming.id != swap.displaced.id) {
+            swaps += swap
+            if (swaps.size > MAX_REMEMBERED_SWAPS) swaps.removeAt(0)
         }
         changed()
+    }
+
+    /**
+     * For each song [visibleUpcoming] shows, whether swiping it would bring back the song it
+     * replaced - see [undoSwap].
+     */
+    fun visibleRestorable(): List<Boolean> {
+        if (restorableVersion != version) {
+            restorableVersion = version
+            val visible = visibleUpcoming()
+            restorable = if (swaps.isEmpty()) {
+                List(visible.size) { false }
+            } else {
+                visible.map { song -> swapFor(song.id)?.let { it.displaced.id != song.id && isWaiting(it.displaced.id) } == true }
+            }
+        }
+        return restorable
+    }
+
+    /** The latest swap that brought [songId] in, if any. */
+    private fun swapFor(songId: Long): UpcomingSwap? = swaps.lastOrNull { it.incoming.id == songId }
+
+    /** Whether [songId] is still to come - queued, or in the generated order - and so can be brought back. */
+    private fun isWaiting(songId: Long): Boolean =
+        current?.id != songId && (explicitQueue.any { it.id == songId } || upcoming.any { it.id == songId })
+
+    /**
+     * Undoes the swap that brought the song at [visibleIndex] into the next-5 list: the song it
+     * replaced goes back into that slot, and the song itself goes back to just past the visible
+     * list, where the swap took it from. Swiping the restored song again goes back another step,
+     * if it too was swapped in.
+     *
+     * The song it replaced has to still be waiting to play. One that has been played since, or
+     * taken out of the queue, can't come back, and nothing changes.
+     *
+     * @param songId the song the slot is expected to hold, so a list that changed under the
+     *   finger never undoes the wrong row.
+     * @return whether a song was brought back.
+     */
+    fun undoSwap(visibleIndex: Int, songId: Long): Boolean {
+        if (visibleIndex !in 0 until VISIBLE_UPCOMING_COUNT) return false
+        val inQueue = visibleIndex < explicitQueue.size
+        val slotList = if (inQueue) explicitQueue else upcoming
+        var slotIndex = if (inQueue) visibleIndex else visibleIndex - explicitQueue.size
+        val song = slotList.getOrNull(slotIndex) ?: return false
+        if (song.id != songId) return false
+        val swap = swapFor(songId) ?: return false
+        val displaced = swap.displaced
+        if (displaced.id == songId || !isWaiting(displaced.id)) return false
+
+        // Take the replaced song out of wherever it's waiting, so it doesn't play twice:
+        //  - appended to the end of the order by the swap, it's that copy that goes;
+        //  - queued again since, it's moved from there;
+        //  - a queued song that was in the order all along keeps its place there, as it had before
+        //    the swap - unless it's coming back into the order itself, where it would be doubled.
+        val fromList: MutableList<Song>? = when {
+            swap.displacedAppended && upcoming.any { it.id == displaced.id } -> upcoming
+            explicitQueue.any { it.id == displaced.id } -> explicitQueue
+            slotList === upcoming -> upcoming
+            else -> null
+        }
+        var restored = displaced
+        if (fromList != null) {
+            val fromIndex = fromList.indexOfLast { it.id == displaced.id }
+            restored = fromList.removeAt(fromIndex)
+            if (fromList === slotList && fromIndex < slotIndex) slotIndex--
+        }
+        slotList.removeAt(slotIndex)
+
+        // Into the very row that was swiped, even when taking it out from further up the list
+        // moved that row's position: a short queue's end can be in view, and that's where the
+        // swap left it. Queued songs stay ahead of the generated order, as always.
+        if (slotList === explicitQueue) {
+            explicitQueue.add(visibleIndex.coerceAtMost(explicitQueue.size), restored)
+        } else {
+            upcoming.add((visibleIndex - explicitQueue.size).coerceIn(0, upcoming.size), restored)
+        }
+
+        // And the swapped-in song goes back behind the song it followed before the swap, as
+        // though it had never been touched - or, with that one gone, to the first place past the
+        // visible list, where the swap took it from. Never ahead of the row just restored.
+        val combined = explicitQueue + upcoming
+        val afterIndex = swap.incomingAfter?.let { after -> combined.indexOfFirst { it.id == after.id } } ?: -1
+        val target = (if (afterIndex >= 0) afterIndex + 1 else VISIBLE_UPCOMING_COUNT).coerceAtLeast(visibleIndex + 1)
+        if (swap.incomingFromQueue && target <= explicitQueue.size) {
+            explicitQueue.add(target, song)
+        } else {
+            upcoming.add((target - explicitQueue.size).coerceIn(0, upcoming.size), song)
+        }
+
+        swaps.remove(swap)
+        changed()
+        return true
     }
 
     /**
@@ -294,7 +444,11 @@ class PlaybackQueueManager {
         explicitQueue.removeAll(predicate)
         upcoming.removeAll(predicate)
         history.removeAll(predicate)
-        if (pool.size + explicitQueue.size + upcoming.size + history.size != before) changed()
+        val swapsBefore = swaps.size
+        swaps.removeAll { predicate(it.incoming) || predicate(it.displaced) }
+        // Only a reference point; without it the song goes back to just past the visible list.
+        swaps.replaceAll { swap -> if (swap.incomingAfter?.let(predicate) == true) swap.copy(incomingAfter = null) else swap }
+        if (pool.size + explicitQueue.size + upcoming.size + history.size != before || swaps.size != swapsBefore) changed()
     }
 
     /**
@@ -315,6 +469,9 @@ class PlaybackQueueManager {
         explicitQueue.replaceAll { transform(it) }
         upcoming.replaceAll { transform(it) }
         history.replaceAll { transform(it) }
+        swaps.replaceAll {
+            it.copy(incoming = transform(it.incoming), displaced = transform(it.displaced), incomingAfter = it.incomingAfter?.let(transform))
+        }
         changed()
     }
 }

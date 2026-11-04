@@ -34,6 +34,18 @@ data class SavedQueue(
     val shuffled: Boolean = false,
     /** Songs opened from another app, which have no database row to resolve their ids against. */
     val externalSongs: List<SavedExternalSong> = emptyList(),
+    /** Swaps on the next-5 list that a swipe can still undo, oldest first. */
+    val swaps: List<SavedSwap> = emptyList(),
+)
+
+/** One swap on the next-5 list, by song id; see UpcomingSwap. */
+@Serializable
+data class SavedSwap(
+    val incomingSongId: Long,
+    val displacedSongId: Long,
+    val displacedAppended: Boolean,
+    val incomingFromQueue: Boolean,
+    val incomingAfterSongId: Long? = null,
 )
 
 /** Everything needed to rebuild a song that was opened from another app. */

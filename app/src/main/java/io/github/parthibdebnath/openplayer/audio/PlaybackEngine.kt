@@ -23,6 +23,7 @@ import io.github.parthibdebnath.openplayer.data.settings.PlaybackStateRepository
 import io.github.parthibdebnath.openplayer.data.settings.SavedPosition
 import io.github.parthibdebnath.openplayer.data.settings.SavedExternalSong
 import io.github.parthibdebnath.openplayer.data.settings.SavedQueue
+import io.github.parthibdebnath.openplayer.data.settings.SavedSwap
 import io.github.parthibdebnath.openplayer.data.repository.EXTERNAL_PLAYLIST_ID
 import io.github.parthibdebnath.openplayer.data.repository.ExternalSongs
 import io.github.parthibdebnath.openplayer.data.repository.isExternal
@@ -47,6 +48,8 @@ data class PlaybackUiState(
     val repeatMode: RepeatMode = RepeatMode.OFF,
     val shuffleOn: Boolean = false,
     val upcoming: List<Song> = emptyList(),
+    /** For each of [upcoming], whether swiping it brings back the song it was swapped in for. */
+    val upcomingRestorable: List<Boolean> = emptyList(),
     /** Why the current song couldn't be played, worded for the listener; null when all is well. */
     val error: String? = null,
     /** Why playback stopped when the listener didn't stop it themselves; null otherwise. */
@@ -825,6 +828,11 @@ class PlaybackEngine private constructor(context: Context) {
                 addAll(saved.upcomingSongIds)
                 addAll(saved.historySongIds)
                 saved.currentSongId?.let(::add)
+                saved.swaps.forEach {
+                    add(it.incomingSongId)
+                    add(it.displacedSongId)
+                    it.incomingAfterSongId?.let(::add)
+                }
             }
             if (ids.isEmpty()) return
 
@@ -854,6 +862,18 @@ class PlaybackEngine private constructor(context: Context) {
                 played = saved.historySongIds.mapNotNull(byId::get),
                 repeat = repeat,
                 order = if (saved.shuffled) PlayOrder.SHUFFLED else PlayOrder.SEQUENTIAL,
+                // A swap whose songs have gone since is simply left out.
+                swapHistory = saved.swaps.mapNotNull { swap ->
+                    val incoming = byId[swap.incomingSongId] ?: return@mapNotNull null
+                    val displaced = byId[swap.displacedSongId] ?: return@mapNotNull null
+                    UpcomingSwap(
+                        incoming = incoming,
+                        displaced = displaced,
+                        displacedAppended = swap.displacedAppended,
+                        incomingFromQueue = swap.incomingFromQueue,
+                        incomingAfter = swap.incomingAfterSongId?.let(byId::get),
+                    )
+                },
             )
             // If the song that was playing has since been deleted, carry on from whatever was due
             // next rather than restoring nothing at all.
@@ -920,6 +940,9 @@ class PlaybackEngine private constructor(context: Context) {
                     repeatMode = queueManager.repeatMode.name,
                     shuffled = queueManager.playOrder == PlayOrder.SHUFFLED,
                     externalSongs = savableExternalSongs(),
+                    swaps = queueManager.swapSnapshot().map {
+                        SavedSwap(it.incoming.id, it.displaced.id, it.displacedAppended, it.incomingFromQueue, it.incomingAfter?.id)
+                    },
                 )
                 runCatching { stateRepository.saveQueue(snapshot) }
                     .onSuccess { lastSavedQueueVersion = version }
@@ -1069,6 +1092,21 @@ class PlaybackEngine private constructor(context: Context) {
         queueManager.replaceUpcomingSlot(visibleIndex)
         syncUpcomingWindow()
         syncState()
+    }
+
+    /**
+     * Brings back the song that [songId], at [visibleIndex] in the next-5 list, was swapped in
+     * for; see [PlaybackQueueManager.undoSwap]. Returns whether one came back.
+     */
+    fun restoreUpcomingSlot(visibleIndex: Int, songId: Long): Boolean {
+        val restored = queueManager.undoSwap(visibleIndex, songId)
+        if (restored) {
+            // The song lined up behind the current one for a gapless roll-over may have just
+            // changed, as it does after a swap.
+            syncUpcomingWindow()
+            syncState()
+        }
+        return restored
     }
 
     fun reorderUpcoming(from: Int, to: Int) {
@@ -1273,6 +1311,7 @@ class PlaybackEngine private constructor(context: Context) {
             repeatMode = queueManager.repeatMode,
             shuffleOn = queueManager.playOrder == PlayOrder.SHUFFLED,
             upcoming = queueManager.visibleUpcoming(),
+            upcomingRestorable = queueManager.visibleRestorable(),
             error = lastError,
             notice = notice,
         )

@@ -226,6 +226,8 @@ fun PlayScreen(
                         viewModel.setUpcomingExpanded(next)
                     },
                     onSwapSlot = { viewModel.replaceUpcomingSlot(it) },
+                    restorable = playbackState.upcomingRestorable,
+                    onRestoreSlot = { index, song -> viewModel.restoreUpcomingSlot(index, song.id) },
                     onReorder = { from, to -> viewModel.reorderUpcoming(from, to) },
                     onHoldSong = viewModel::openTagEditor,
                 )
