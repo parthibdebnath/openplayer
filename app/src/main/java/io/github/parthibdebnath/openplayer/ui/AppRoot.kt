@@ -147,7 +147,10 @@ fun AppRoot(
         label = "content colour",
     )
     // A skin brings its own colours; the user's background colour is openplayer's own look.
-    val skin = io.github.parthibdebnath.openplayer.ui.skin.skinFor(settings.uiTheme)
+    val skin = io.github.parthibdebnath.openplayer.ui.skin.skinFor(
+        settings.uiTheme,
+        io.github.parthibdebnath.openplayer.ui.skin.SkinChoices.forTheme(settings.uiTheme, settings.skinChoices),
+    )
     val appColors = skin?.colors ?: AppColors(background = background, onBackground = onBackground)
 
     // The screen recording floating glass refracts; owned here so the tab bar and the gesture

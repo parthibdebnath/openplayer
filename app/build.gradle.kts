@@ -80,6 +80,7 @@ android {
             it.systemProperty("themeRender.out", project.findProperty("themeRenderOut")?.toString() ?: "")
             it.systemProperty("themeRender.only", project.findProperty("themeRenderOnly")?.toString() ?: "")
             it.systemProperty("themeRender.video", project.findProperty("themeRenderVideo")?.toString() ?: "")
+            it.systemProperty("themeRender.variants", project.findProperty("themeRenderVariants")?.toString() ?: "")
             // Robolectric downloads its Android runtime from Maven Central; a mirror can stand in.
             project.findProperty("robolectricRepo")?.let { url -> it.systemProperty("robolectric.dependency.repo.url", url.toString()) }
         }

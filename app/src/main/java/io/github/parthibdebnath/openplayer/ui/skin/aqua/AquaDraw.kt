@@ -1,6 +1,9 @@
 package io.github.parthibdebnath.openplayer.ui.skin.aqua
 
 import android.graphics.Bitmap
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -20,18 +23,33 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import kotlin.math.min
 import kotlin.random.Random
 
+/**
+ * The appearance picked in System Preferences: Blue, or Graphite, which turned every gel, the
+ * traffic lights and the selection a cool grey. Set by AquaSkin's frame before anything under it
+ * is drawn; held as state so whatever's already drawn redraws when it changes.
+ */
+internal object AquaAppearance {
+    var graphite by mutableStateOf(false)
+}
+
 /** Aqua's materials: gel, pinstripes and brushed metal. */
 internal object AquaColors {
     val text = Color(0xFF000000)
     val textDim = Color(0xFF4D4D4D)
-    val selection = Color(0xFF3875D7)
-    val stripe = Color(0xFFEDF3FE)
+    val selection get() = if (AquaAppearance.graphite) Color(0xFF6F7D93) else Color(0xFF3875D7)
+    val stripe get() = if (AquaAppearance.graphite) Color(0xFFF0F1F3) else Color(0xFFEDF3FE)
     val wellBorder = Color(0xFF8C8C8C)
     val lcdTop = Color(0xFFF5F7E4)
     val lcdBottom = Color(0xFFDDE3C3)
     val lcdBorder = Color(0xFF7D806C)
     val lcdText = Color(0xFF1E1F18)
-    val focus = Color(0xFF6E9DE6)
+    val focus get() = if (AquaAppearance.graphite) Color(0xFF8E9BB0) else Color(0xFF6E9DE6)
+
+    /** The desktop, seen past the window's rounded top corners. */
+    val desktop get() = if (AquaAppearance.graphite) listOf(Color(0xFF5B6470), Color(0xFF9BA3AE)) else listOf(Color(0xFF3A6EC4), Color(0xFF6FA0E0))
+
+    /** The engraved glyph on the Play gel. */
+    val gelInk get() = if (AquaAppearance.graphite) Color(0xFF1F2630) else Color(0xFF0D2E6E)
 }
 
 /** One gel's colours, top to bottom, with its rim and the glow that pools at its base. */
@@ -43,12 +61,21 @@ internal class Gel(
 )
 
 internal object Gels {
-    val blue = Gel(
+    /** Whatever is default or on: blue, or graphite. */
+    val blue get() = if (AquaAppearance.graphite) graphiteGel else blueGel
+    val bluePressed get() = if (AquaAppearance.graphite) graphitePressedGel else bluePressedGel
+
+    /** The traffic lights; in Graphite all three went grey. */
+    val red get() = if (AquaAppearance.graphite) graphiteLight else redGel
+    val yellow get() = if (AquaAppearance.graphite) graphiteLight else yellowGel
+    val green get() = if (AquaAppearance.graphite) graphiteLight else greenGel
+
+    private val blueGel = Gel(
         body = listOf(0f to Color(0xFF3577D9), 0.46f to Color(0xFF1F5FCC), 0.78f to Color(0xFF4F98EC), 1f to Color(0xFF9AD8FF)),
         rim = Color(0xFF173F8F),
         glow = Color(0xFFC6F1FF),
     )
-    val bluePressed = Gel(
+    private val bluePressedGel = Gel(
         body = listOf(0f to Color(0xFF1D4FA8), 0.46f to Color(0xFF143F94), 0.78f to Color(0xFF2E6FCB), 1f to Color(0xFF6EB4F2)),
         rim = Color(0xFF0E2A63),
         glow = Color(0xFF9FD8F7),
@@ -65,17 +92,33 @@ internal object Gels {
         glow = Color(0xFFF2F2F2),
         highlight = 0.7f,
     )
-    val red = Gel(
+    private val graphiteGel = Gel(
+        body = listOf(0f to Color(0xFF9AA3B0), 0.46f to Color(0xFF7C8796), 0.78f to Color(0xFF9BA6B5), 1f to Color(0xFFD2DAE3)),
+        rim = Color(0xFF4C5563),
+        glow = Color(0xFFE9EEF4),
+    )
+    private val graphitePressedGel = Gel(
+        body = listOf(0f to Color(0xFF6E7887), 0.46f to Color(0xFF5B6573), 0.78f to Color(0xFF77828F), 1f to Color(0xFFAFB8C3)),
+        rim = Color(0xFF343B46),
+        glow = Color(0xFFC9D1DA),
+        highlight = 0.75f,
+    )
+    private val graphiteLight = Gel(
+        body = listOf(0f to Color(0xFF8C96A3), 0.5f to Color(0xFF6D7886), 0.8f to Color(0xFF8E99A7), 1f to Color(0xFFC8D0DA)),
+        rim = Color(0xFF454D59),
+        glow = Color(0xFFE2E8EF),
+    )
+    private val redGel = Gel(
         body = listOf(0f to Color(0xFFD5473A), 0.5f to Color(0xFFB8261C), 0.8f to Color(0xFFE25C45), 1f to Color(0xFFFFA58A)),
         rim = Color(0xFF7E1610),
         glow = Color(0xFFFFC9B8),
     )
-    val yellow = Gel(
+    private val yellowGel = Gel(
         body = listOf(0f to Color(0xFFE5A93A), 0.5f to Color(0xFFD08A16), 0.8f to Color(0xFFF0B640), 1f to Color(0xFFFFE08C)),
         rim = Color(0xFF8A5A08),
         glow = Color(0xFFFFF0B8),
     )
-    val green = Gel(
+    private val greenGel = Gel(
         body = listOf(0f to Color(0xFF6DB143), 0.5f to Color(0xFF4A9327), 0.8f to Color(0xFF7CC44C), 1f to Color(0xFFC2EF8F)),
         rim = Color(0xFF2C5E12),
         glow = Color(0xFFE2FFC4),

@@ -50,8 +50,9 @@ import java.util.TimeZone
  *
  *   ./gradlew testDebugUnitTest --tests '*ThemeRenderTest*' -PthemeRenderOut=/tmp/frames
  *
- * -PthemeRenderOnly=AQUA,LUNA limits it to some themes; -PthemeRenderVideo=true also records a
- * walkthrough of each theme, frame by frame at 30 fps, for stitching into a video.
+ * -PthemeRenderOnly=AQUA,LUNA limits it to some themes (NONE for none); -PthemeRenderVideo=true
+ * also records a walkthrough of each theme, frame by frame at 30 fps, for stitching into a video;
+ * -PthemeRenderVariants="METRO:background=light,accent=lime" adds looks with a theme's options set.
  *
  * Playback can't run here (there's no audio decoding), so the engine's published state is set
  * directly to a song part-way through; everything else goes through the app's own code.
@@ -70,6 +71,17 @@ class ThemeRenderTest {
         .split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
     private val video = System.getProperty("themeRender.video") == "true"
 
+    /**
+     * Extra looks to render after the themes, as "THEME:option=choice,option=choice", several
+     * separated by "|" - e.g. "METRO:background=light,accent=lime|CLASSIC:scheme=rainy".
+     */
+    private val variants = System.getProperty("themeRender.variants").orEmpty()
+        .split('|').map { it.trim() }.filter { it.isNotEmpty() }
+        .map { spec ->
+            val (theme, options) = spec.split(':', limit = 2).let { it[0] to it.getOrElse(1) { "" } }
+            UiTheme.valueOf(theme) to options.split(',').filter { '=' in it }.associate { it.substringBefore('=') to it.substringAfter('=') }
+        }
+
     private lateinit var songs: List<Song>
     private lateinit var playlistIds: List<Long>
 
@@ -84,7 +96,7 @@ class ThemeRenderTest {
 
         val themes = UiTheme.entries.filter { only.isEmpty() || it.name in only }
         // The first theme is set before launch, so the first frame is already themed.
-        runBlocking { SettingsRepository(app).setUiTheme(themes.first()) }
+        runBlocking { SettingsRepository(app).setUiTheme(themes.firstOrNull() ?: variants.first().first) }
 
         ActivityScenario.launch(MainActivity::class.java).use { launched ->
             scenario = launched
@@ -96,13 +108,24 @@ class ThemeRenderTest {
                 renderStills(theme)
                 if (video) recordWalkthrough(theme)
             }
+            for ((theme, options) in variants) {
+                runBlocking {
+                    val settings = SettingsRepository(app)
+                    options.forEach { (key, choice) -> settings.setSkinChoice(theme, key, choice) }
+                    settings.setUiTheme(theme)
+                }
+                settle(800)
+                val name = theme.name.lowercase() + options.entries.joinToString("") { "-${it.key}_${it.value}" }
+                renderStills(theme, name)
+                if (video) recordWalkthrough(theme, name)
+            }
         }
     }
 
     // --- scenes -------------------------------------------------------------------------------
 
-    private fun renderStills(theme: UiTheme) {
-        val dir = File(outRoot, theme.name.lowercase()).apply { mkdirs() }
+    private fun renderStills(theme: UiTheme, name: String = theme.name.lowercase()) {
+        val dir = File(outRoot, name).apply { mkdirs() }
         goToTab("Play")
         publishPlayback(expandedHint = false)
         settle(900)
@@ -147,28 +170,10 @@ class ThemeRenderTest {
         openSettings()
         settle(900)
         shot(dir, "8_settings")
-        // The theme picker, further down Settings.
-        // Swiped to rather than scrolled to: a scroll-to animates, and on this paused clock waits forever.
-        val picker = hasTestTag("theme:${UiTheme.DEFAULT.name}")
-        if (compose.onAllNodes(picker).fetchSemanticsNodes().isNotEmpty()) {
-            val screenHeight = compose.onAllNodes(androidx.compose.ui.test.isRoot()).fetchSemanticsNodes().first().size.height
-            // The iPod's list sits in the small screen above the wheel and scrolls with the wheel.
-            val wheel = compose.onAllNodes(hasTestTag("ipod:wheel")).fetchSemanticsNodes().isNotEmpty()
-            repeat(30) {
-                val top = compose.onAllNodes(picker).fetchSemanticsNodes().firstOrNull()?.positionInRoot?.y ?: return@repeat
-                if (top < screenHeight * (if (wheel) 0.3f else 0.4f)) return@repeat
-                if (wheel) {
-                    wheelSpin(60f, 6) { settle(it) }
-                } else {
-                    compose.onAllNodes(androidx.compose.ui.test.isRoot()).onFirstOrNull()?.performTouchInput {
-                        swipe(Offset(centerX, height * 0.56f), Offset(centerX, height * 0.44f), 700)
-                    }
-                }
-                settle(500)
-            }
-            settle(600)
-            shot(dir, "8b_theme_picker")
-        }
+        // The theme picker, further down Settings, and the theme's own options under it.
+        if (scrollIntoView(hasTestTag("theme:${UiTheme.DEFAULT.name}"), 0.4f)) shot(dir, "8b_theme_picker")
+        val firstOption = io.github.parthibdebnath.openplayer.ui.skin.skinOptions(theme).firstOrNull()
+        if (firstOption != null && scrollIntoView(hasTestTag("skinOption:${firstOption.key}"), 0.42f)) shot(dir, "8c_theme_options")
 
         // The iPod's main menu.
         if (compose.onAllNodes(hasTestTag("ipod:wheel")).fetchSemanticsNodes().isNotEmpty()) {
@@ -199,12 +204,39 @@ class ThemeRenderTest {
     }
 
     /**
+     * Swipes (or, on the iPod, turns the wheel) until the node's top is above [fraction] of the
+     * screen. Swiped rather than scrolled to: a scroll-to animates, and on this paused clock waits
+     * forever. False if there's no such node.
+     */
+    private fun scrollIntoView(matcher: androidx.compose.ui.test.SemanticsMatcher, fraction: Float): Boolean {
+        if (compose.onAllNodes(matcher).fetchSemanticsNodes().isEmpty()) return false
+        val screenHeight = compose.onAllNodes(androidx.compose.ui.test.isRoot()).fetchSemanticsNodes().first().size.height
+        // The iPod's list sits in the small screen above the wheel and scrolls with the wheel.
+        val wheel = compose.onAllNodes(hasTestTag("ipod:wheel")).fetchSemanticsNodes().isNotEmpty()
+        val limit = if (wheel) fraction * 0.75f else fraction
+        repeat(40) {
+            val top = compose.onAllNodes(matcher).fetchSemanticsNodes().firstOrNull()?.positionInRoot?.y ?: return@repeat
+            if (top < screenHeight * limit) return@repeat
+            if (wheel) {
+                wheelSpin(60f, 6) { settle(it) }
+            } else {
+                compose.onAllNodes(androidx.compose.ui.test.isRoot()).onFirstOrNull()?.performTouchInput {
+                    swipe(Offset(centerX, height * 0.56f), Offset(centerX, height * 0.44f), 700)
+                }
+            }
+            settle(500)
+        }
+        settle(600)
+        return true
+    }
+
+    /**
      * A walkthrough of the theme, frame by frame at 30 fps of the app's own clock: Play with the
      * song moving along, the library and a playlist scrolled, the effects pages, and whatever the
      * theme does that's its own - the iPod's wheel turned.
      */
-    private fun recordWalkthrough(theme: UiTheme) {
-        val dir = File(outRoot, "video_" + theme.name.lowercase()).apply { mkdirs() }
+    private fun recordWalkthrough(theme: UiTheme, name: String = theme.name.lowercase()) {
+        val dir = File(outRoot, "video_$name").apply { mkdirs() }
         var frame = 0
         fun run(ms: Long) {
             val frames = (ms / FRAME_MS).toInt().coerceAtLeast(1)

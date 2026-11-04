@@ -2,6 +2,7 @@ package io.github.parthibdebnath.openplayer.ui.skin.platinum
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.horizontalDrag
@@ -739,18 +740,48 @@ object PlatinumSkin : Skin() {
                             .padding(vertical = px(4)),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Canvas(Modifier.size(px(12))) {
-                            val r = size.minDimension / 2f
-                            drawCircle(Pt.light, r)
-                            drawArc(Color.White, 135f, 180f, false, Offset(u(), u()), Size(size.width - 2 * u(), size.height - 2 * u()), style = Stroke(u()))
-                            drawCircle(Color.Black, r - u() / 2f, style = Stroke(u()))
-                            if (i == selectedIndex) drawCircle(Color.Black, r * 0.42f)
-                        }
+                        RadioMark(i == selectedIndex)
                         Spacer(Modifier.width(px(4)))
                         Text(label, style = small(12f), color = Color.Black, maxLines = 1, overflow = TextOverflow.Clip)
                     }
                 }
             }
+        }
+    }
+
+    /** The Appearance Manager's radio button: a grey bevelled circle, with a black dot when chosen. */
+    @Composable
+    private fun RadioMark(selected: Boolean) {
+        Canvas(Modifier.size(px(12))) {
+            val r = size.minDimension / 2f
+            drawCircle(Pt.light, r)
+            drawArc(Color.White, 135f, 180f, false, Offset(u(), u()), Size(size.width - 2 * u(), size.height - 2 * u()), style = Stroke(u()))
+            drawCircle(Color.Black, r - u() / 2f, style = Stroke(u()))
+            if (selected) drawCircle(Color.Black, r * 0.42f)
+        }
+    }
+
+    @Composable
+    override fun ChoiceRow(label: String, selected: Boolean, onSelect: () -> Unit, modifier: Modifier, swatch: Color?) {
+        val haptics = LocalHaptics.current
+        Row(
+            modifier
+                .fillMaxWidth()
+                .semantics { role = Role.RadioButton; this.selected = selected }
+                .skinClick(remember { MutableInteractionSource() }, role = Role.RadioButton) {
+                    if (!selected) haptics?.tick()
+                    onSelect()
+                }
+                .padding(vertical = px(4)),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            RadioMark(selected)
+            Spacer(Modifier.width(px(6)))
+            if (swatch != null) {
+                Box(Modifier.size(px(18), px(12)).background(swatch).border(1.dp, Color.Black))
+                Spacer(Modifier.width(px(5)))
+            }
+            Text(label, style = small(12f), color = Color.Black, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
         }
     }
 

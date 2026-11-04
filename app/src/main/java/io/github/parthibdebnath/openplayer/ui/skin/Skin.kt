@@ -234,6 +234,11 @@ abstract class Skin {
     @Composable
     abstract fun Divider(modifier: Modifier)
 
+    /** One of a list where exactly one is picked (the theme, a colour scheme); [swatch] is its colour, if it has one. */
+    @Composable
+    open fun ChoiceRow(label: String, selected: Boolean, onSelect: () -> Unit, modifier: Modifier, swatch: Color?) =
+        io.github.parthibdebnath.openplayer.ui.components.DefaultChoiceRow(label, selected, onSelect, modifier, swatch)
+
     /** A screen's scroll area, handed to the skin while it's on screen (the iPod's wheel scrolls it). */
     @Composable
     open fun ScrollArea(state: ScrollableState) = Unit

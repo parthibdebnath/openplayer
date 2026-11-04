@@ -4,7 +4,12 @@ import android.graphics.Bitmap
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.ImageShader
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.ShaderBrush
@@ -14,16 +19,185 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import kotlin.math.max
 import kotlin.math.roundToInt
 
-/** Windows 95's colours. */
+/**
+ * A Windows colour scheme, as Display Properties' Appearance tab chose them: the 3D face and its
+ * edges, the desktop, the title bars, the white "window" colour of lists and fields, and the
+ * selection.
+ */
+@Immutable
+internal class Win95Scheme(
+    val id: String,
+    val label: String,
+    val face: Color,
+    val light: Color,
+    val highlight: Color,
+    val shadow: Color,
+    val dark: Color,
+    val desktop: Color,
+    val caption: Color,
+    val captionEnd: Color,
+    val captionText: Color,
+    val inactiveCaption: Color,
+    val inactiveCaptionEnd: Color,
+    val inactiveCaptionText: Color,
+    val window: Color,
+    val windowText: Color,
+    val selection: Color,
+    val selectionText: Color,
+    /** Text on the 3D face: buttons, labels, menus. */
+    val text: Color,
+) {
+    companion object {
+        /**
+         * Windows Standard and the schemes Windows 98 shipped beside it (the high-contrast ones
+         * left out). Values as recorded in ReactOS's copy of the same registry schemes.
+         */
+        val All = listOf(
+        Win95Scheme(
+            "standard", "Windows Standard",
+            face = Color(0xFFC0C0C0), light = Color(0xFFDFDFDF), highlight = Color(0xFFFFFFFF), shadow = Color(0xFF808080), dark = Color(0xFF000000),
+            desktop = Color(0xFF008080),
+            caption = Color(0xFF000080), captionEnd = Color(0xFF1084D0), captionText = Color(0xFFFFFFFF),
+            inactiveCaption = Color(0xFF808080), inactiveCaptionEnd = Color(0xFFB5B5B5), inactiveCaptionText = Color(0xFFC0C0C0),
+            window = Color(0xFFFFFFFF), windowText = Color(0xFF000000), selection = Color(0xFF000080), selectionText = Color(0xFFFFFFFF), text = Color(0xFF000000),
+        ),
+        Win95Scheme(
+            "brick", "Brick",
+            face = Color(0xFFC2BFA5), light = Color(0xFFC2BFA5), highlight = Color(0xFFE1E0D2), shadow = Color(0xFF8D8961), dark = Color(0xFF000000),
+            desktop = Color(0xFF420000),
+            caption = Color(0xFF800000), captionEnd = Color(0xFFB07440), captionText = Color(0xFFE1E0D2),
+            inactiveCaption = Color(0xFF8D8961), inactiveCaptionEnd = Color(0xFFC8B870), inactiveCaptionText = Color(0xFFE1E0D2),
+            window = Color(0xFFFFFFFF), windowText = Color(0xFF000000), selection = Color(0xFF8D8961), selectionText = Color(0xFFFFFFFF), text = Color(0xFF000000),
+        ),
+        Win95Scheme(
+            "eggplant", "Eggplant",
+            face = Color(0xFF90B0A8), light = Color(0xFF90B0A8), highlight = Color(0xFFC8D8D8), shadow = Color(0xFF588078), dark = Color(0xFF000000),
+            desktop = Color(0xFF400040),
+            caption = Color(0xFF588078), captionEnd = Color(0xFF834B83), captionText = Color(0xFFFFFFFF),
+            inactiveCaption = Color(0xFF90B0A8), inactiveCaptionEnd = Color(0xFFCBBDD2), inactiveCaptionText = Color(0xFF588078),
+            window = Color(0xFFFFFFFF), windowText = Color(0xFF000000), selection = Color(0xFF588078), selectionText = Color(0xFFFFFFFF), text = Color(0xFF000000),
+        ),
+        Win95Scheme(
+            "lilac", "Lilac",
+            face = Color(0xFFAEA8D9), light = Color(0xFFAEA8D9), highlight = Color(0xFFD8D5EC), shadow = Color(0xFF5A4EB1), dark = Color(0xFF000000),
+            desktop = Color(0xFF000000),
+            caption = Color(0xFF5A4EB1), captionEnd = Color(0xFFB68FCB), captionText = Color(0xFFFFFFFF),
+            inactiveCaption = Color(0xFF808080), inactiveCaptionEnd = Color(0xFFB8B4D0), inactiveCaptionText = Color(0xFFFFFFFF),
+            window = Color(0xFFFFFFFF), windowText = Color(0xFF000000), selection = Color(0xFF5A4EB1), selectionText = Color(0xFFFFFFFF), text = Color(0xFF000000),
+        ),
+        Win95Scheme(
+            "maple", "Maple",
+            face = Color(0xFFE6D8AE), light = Color(0xFFE6D8AE), highlight = Color(0xFFF2ECD7), shadow = Color(0xFFC6A646), dark = Color(0xFF000000),
+            desktop = Color(0xFF000000),
+            caption = Color(0xFF800000), captionEnd = Color(0xFFC09C38), captionText = Color(0xFFFFFFFF),
+            inactiveCaption = Color(0xFFC6A646), inactiveCaptionEnd = Color(0xFFE0C888), inactiveCaptionText = Color(0xFFF2ECD7),
+            window = Color(0xFFFFFFFF), windowText = Color(0xFF000000), selection = Color(0xFFC6A646), selectionText = Color(0xFF000000), text = Color(0xFF000000),
+        ),
+        Win95Scheme(
+            "marine", "Marine",
+            face = Color(0xFF88C0B8), light = Color(0xFF88C0B8), highlight = Color(0xFFC8E0D8), shadow = Color(0xFF489088), dark = Color(0xFF000000),
+            desktop = Color(0xFF2C4E47),
+            caption = Color(0xFF000080), captionEnd = Color(0xFF18B4C0), captionText = Color(0xFFFFFFFF),
+            inactiveCaption = Color(0xFF489088), inactiveCaptionEnd = Color(0xFF78CCD8), inactiveCaptionText = Color(0xFFC0C0C0),
+            window = Color(0xFFC8E0D8), windowText = Color(0xFF000000), selection = Color(0xFF000080), selectionText = Color(0xFFFFFFFF), text = Color(0xFF000000),
+        ),
+        Win95Scheme(
+            "plum", "Plum",
+            face = Color(0xFFA89890), light = Color(0xFFA89890), highlight = Color(0xFFD8D0C8), shadow = Color(0xFF786058), dark = Color(0xFF000000),
+            desktop = Color(0xFF402840),
+            caption = Color(0xFF484060), captionEnd = Color(0xFFA084B8), captionText = Color(0xFFFFFFFF),
+            inactiveCaption = Color(0xFF786058), inactiveCaptionEnd = Color(0xFFA89878), inactiveCaptionText = Color(0xFFA89890),
+            window = Color(0xFFD8D0C8), windowText = Color(0xFF000000), selection = Color(0xFF008080), selectionText = Color(0xFFD8D0C8), text = Color(0xFF000000),
+        ),
+        Win95Scheme(
+            "pumpkin", "Pumpkin",
+            face = Color(0xFFECD59D), light = Color(0xFFECD59D), highlight = Color(0xFFF5EACF), shadow = Color(0xFFD7A52F), dark = Color(0xFF000000),
+            desktop = Color(0xFF420042),
+            caption = Color(0xFFD7A52F), captionEnd = Color(0xFFE0CC88), captionText = Color(0xFFFFFFFF),
+            inactiveCaption = Color(0xFFA0A0A4), inactiveCaptionEnd = Color(0xFFD0CC90), inactiveCaptionText = Color(0xFFF5EACF),
+            window = Color(0xFFFFFFFF), windowText = Color(0xFF000000), selection = Color(0xFF800080), selectionText = Color(0xFFFFFFFF), text = Color(0xFF000000),
+        ),
+        Win95Scheme(
+            "rainy", "Rainy Day",
+            face = Color(0xFF8399B1), light = Color(0xFF8399B1), highlight = Color(0xFFC1CCD9), shadow = Color(0xFF4F657D), dark = Color(0xFF000000),
+            desktop = Color(0xFF000000),
+            caption = Color(0xFF4F657D), captionEnd = Color(0xFF80B4D0), captionText = Color(0xFFFFFFFF),
+            inactiveCaption = Color(0xFF808080), inactiveCaptionEnd = Color(0xFFB0BCD0), inactiveCaptionText = Color(0xFFC1CCD9),
+            window = Color(0xFFFFFFFF), windowText = Color(0xFF000000), selection = Color(0xFF4F657D), selectionText = Color(0xFFFFFFFF), text = Color(0xFF000000),
+        ),
+        Win95Scheme(
+            "rwb", "Red, White, and Blue",
+            face = Color(0xFFC0C0C0), light = Color(0xFFC0C0C0), highlight = Color(0xFFFFFFFF), shadow = Color(0xFF808080), dark = Color(0xFF000000),
+            desktop = Color(0xFF000042),
+            caption = Color(0xFF800000), captionEnd = Color(0xFF0010A8), captionText = Color(0xFFFFFFFF),
+            inactiveCaption = Color(0xFF808080), inactiveCaptionEnd = Color(0xFFBABEC9), inactiveCaptionText = Color(0xFFC0C0C0),
+            window = Color(0xFFFFFFFF), windowText = Color(0xFF000000), selection = Color(0xFF800000), selectionText = Color(0xFFFFFFFF), text = Color(0xFF000000),
+        ),
+        Win95Scheme(
+            "rose", "Rose",
+            face = Color(0xFFCFAFB7), light = Color(0xFFCFAFB7), highlight = Color(0xFFE7D8DC), shadow = Color(0xFF9F6070), dark = Color(0xFF000000),
+            desktop = Color(0xFF808080),
+            caption = Color(0xFF9F6070), captionEnd = Color(0xFFD8CCD0), captionText = Color(0xFFFFFFFF),
+            inactiveCaption = Color(0xFFA0A0A4), inactiveCaptionEnd = Color(0xFFD0D4D0), inactiveCaptionText = Color(0xFF7D7D7D),
+            window = Color(0xFFFFFFFF), windowText = Color(0xFF000000), selection = Color(0xFF9F6070), selectionText = Color(0xFFFFFFFF), text = Color(0xFF000000),
+        ),
+        Win95Scheme(
+            "slate", "Slate",
+            face = Color(0xFF9DB9C8), light = Color(0xFF9DB9C8), highlight = Color(0xFFCEDCE3), shadow = Color(0xFF558097), dark = Color(0xFF000000),
+            desktop = Color(0xFF414141),
+            caption = Color(0xFF558097), captionEnd = Color(0xFF88B8D8), captionText = Color(0xFFFFFFFF),
+            inactiveCaption = Color(0xFF808080), inactiveCaptionEnd = Color(0xFFA0BCC8), inactiveCaptionText = Color(0xFFC0C0C0),
+            window = Color(0xFFFFFFFF), windowText = Color(0xFF000000), selection = Color(0xFF558097), selectionText = Color(0xFFFFFFFF), text = Color(0xFF000000),
+        ),
+        Win95Scheme(
+            "storm", "Storm",
+            face = Color(0xFFC0C0C0), light = Color(0xFFC0C0C0), highlight = Color(0xFFFFFFFF), shadow = Color(0xFF808080), dark = Color(0xFF000000),
+            desktop = Color(0xFF000000),
+            caption = Color(0xFF800080), captionEnd = Color(0xFF388CB0), captionText = Color(0xFFFFFFFF),
+            inactiveCaption = Color(0xFF808080), inactiveCaptionEnd = Color(0xFFA8ACA8), inactiveCaptionText = Color(0xFFC0C0C0),
+            window = Color(0xFFFFFFFF), windowText = Color(0xFF000000), selection = Color(0xFF800080), selectionText = Color(0xFFFFFFFF), text = Color(0xFF000000),
+        ),
+        Win95Scheme(
+            "teal", "Teal",
+            face = Color(0xFFC0C0C0), light = Color(0xFFC0C0C0), highlight = Color(0xFFFFFFFF), shadow = Color(0xFF808080), dark = Color(0xFF000000),
+            desktop = Color(0xFF004040),
+            caption = Color(0xFF008080), captionEnd = Color(0xFF00CCD8), captionText = Color(0xFFFFFFFF),
+            inactiveCaption = Color(0xFF808080), inactiveCaptionEnd = Color(0xFF98C8B8), inactiveCaptionText = Color(0xFFFFFBF0),
+            window = Color(0xFFFFFFFF), windowText = Color(0xFF000000), selection = Color(0xFF008080), selectionText = Color(0xFFFFFFFF), text = Color(0xFF000000),
+        ),
+        Win95Scheme(
+            "wheat", "Wheat",
+            face = Color(0xFFDEDEA0), light = Color(0xFFDEDEA0), highlight = Color(0xFFEEEED0), shadow = Color(0xFFBCBC41), dark = Color(0xFF000000),
+            desktop = Color(0xFF00401D),
+            caption = Color(0xFF808000), captionEnd = Color(0xFFC8B048), captionText = Color(0xFFFFFFFF),
+            inactiveCaption = Color(0xFFBCBC41), inactiveCaptionEnd = Color(0xFFB8B880), inactiveCaptionText = Color(0xFFFFFFFF),
+            window = Color(0xFFFFFFFF), windowText = Color(0xFF000000), selection = Color(0xFF808000), selectionText = Color(0xFFFFFFFF), text = Color(0xFF000000),
+        ),
+        )
+    }
+}
+
+/** The colours in use: the current [Win95Scheme], plus the CD Player's display. */
 internal object W95 {
-    val face = Color(0xFFC0C0C0)
-    val light = Color(0xFFDFDFDF)
-    val highlight = Color(0xFFFFFFFF)
-    val shadow = Color(0xFF808080)
-    val dark = Color(0xFF000000)
-    val navy = Color(0xFF000080)
-    val titleEnd = Color(0xFF1084D0)
-    val desktop = Color(0xFF008080)
+    /**
+     * The scheme in use. Set by ClassicSkin's frame before anything under it is drawn; held as
+     * state so whatever's already drawn redraws when it changes.
+     */
+    var scheme by mutableStateOf(Win95Scheme.All.first())
+
+    val face get() = scheme.face
+    val light get() = scheme.light
+    val highlight get() = scheme.highlight
+    val shadow get() = scheme.shadow
+    val dark get() = scheme.dark
+    val desktop get() = scheme.desktop
+    val caption get() = scheme.caption
+    val captionEnd get() = scheme.captionEnd
+    val window get() = scheme.window
+    val windowText get() = scheme.windowText
+    val selection get() = scheme.selection
+    val selectionText get() = scheme.selectionText
+    val text get() = scheme.text
     val ledOn = Color(0xFF00FF00)
     /** Unlit segments: the CD Player showed none, just black. */
     val ledOff = Color.Transparent
@@ -73,7 +247,7 @@ internal fun ditherBrush(density: Float): ShaderBrush {
     val bitmap = Bitmap.createBitmap(u * 2, u * 2, Bitmap.Config.ARGB_8888)
     for (y in 0 until u * 2) for (x in 0 until u * 2) {
         val on = ((x / u) + (y / u)) % 2 == 0
-        bitmap.setPixel(x, y, if (on) 0xFFFFFFFF.toInt() else 0xFFC0C0C0.toInt())
+        bitmap.setPixel(x, y, if (on) W95.highlight.toArgb() else W95.face.toArgb())
     }
     return ShaderBrush(ImageShader(bitmap.asImageBitmap(), TileMode.Repeated, TileMode.Repeated))
 }
@@ -97,7 +271,7 @@ internal fun DrawScope.drawPixels(rows: List<String>, origin: Offset, scale: Int
                 'r' -> Color(0xFFFF0000)
                 'm' -> Color(0xFF800000)
                 'b' -> Color(0xFF0000FF)
-                'n' -> W95.navy
+                'n' -> Color(0xFF000080)
                 'c' -> Color(0xFF00FFFF)
                 't' -> Color(0xFF008080)
                 'G' -> Color(0xFF008000)

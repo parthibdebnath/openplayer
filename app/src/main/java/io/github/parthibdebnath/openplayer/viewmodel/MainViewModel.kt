@@ -1013,6 +1013,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setThreeFingerVolumeGesture(value: Boolean) = launchSafely { settingsRepository.setThreeFingerVolumeGesture(value) }
     fun setGlassTheming(value: Boolean) = launchSafely { settingsRepository.setGlassTheming(value) }
     fun setUiTheme(value: io.github.parthibdebnath.openplayer.data.settings.UiTheme) = launchSafely { settingsRepository.setUiTheme(value) }
+    fun setSkinChoice(theme: io.github.parthibdebnath.openplayer.data.settings.UiTheme, option: String, choice: String) =
+        launchSafely { settingsRepository.setSkinChoice(theme, option, choice) }
     fun setTwentyFourHourClock(value: Boolean) = launchSafely { settingsRepository.setTwentyFourHourClock(value) }
     fun setCrossfadeMs(value: Int) = launchSafely { settingsRepository.setCrossfadeMs(value) }
     fun setDjMix(value: Boolean) = launchSafely { settingsRepository.setDjMix(value) }

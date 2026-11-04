@@ -100,6 +100,9 @@ import io.github.parthibdebnath.openplayer.ui.skin.FrameModel
 import io.github.parthibdebnath.openplayer.ui.skin.MiniPlayerModel
 import io.github.parthibdebnath.openplayer.ui.skin.NowPlayingModel
 import io.github.parthibdebnath.openplayer.ui.skin.Skin
+import io.github.parthibdebnath.openplayer.ui.skin.SkinChoice
+import io.github.parthibdebnath.openplayer.ui.skin.SkinChoices
+import io.github.parthibdebnath.openplayer.ui.skin.SkinOption
 import io.github.parthibdebnath.openplayer.ui.skin.SkinFonts
 import io.github.parthibdebnath.openplayer.ui.skin.SliderLook
 import io.github.parthibdebnath.openplayer.ui.skin.SongRowModel
@@ -119,11 +122,26 @@ import kotlin.math.roundToInt
  * screen is the CD Player, LED display and all. Everything sits on a whole-pixel grid, so edges
  * and text stay crisp.
  */
-object ClassicSkin : Skin() {
+class ClassicSkin private constructor(private val scheme: Win95Scheme) : Skin() {
     override val theme = UiTheme.CLASSIC
-    override val colors = AppColors(background = W95.face, onBackground = Color.Black)
+    override val colors = AppColors(background = scheme.face, onBackground = scheme.text)
     override val showsHeader = false
     override val gutter: Dp = 8.dp
+
+    companion object {
+        private val Scheme = SkinOption(
+            "scheme",
+            "Scheme",
+            Win95Scheme.All.map { SkinChoice(it.id, it.label, it.caption) },
+            SkinOption.Style.List,
+        )
+        val Options = listOf(Scheme)
+
+        fun create(choices: SkinChoices): ClassicSkin {
+            val id = choices.of(Scheme).id
+            return ClassicSkin(Win95Scheme.All.first { it.id == id })
+        }
+    }
 
     /** One classic pixel, in device pixels. */
     private fun unitPx(density: Density) = max(1, density.density.roundToInt())
@@ -159,6 +177,8 @@ object ClassicSkin : Skin() {
 
     @Composable
     override fun Frame(model: FrameModel, content: @Composable (Modifier) -> Unit) {
+        // Everything below draws in this skin's scheme; set before any of it composes.
+        if (W95.scheme !== scheme) W95.scheme = scheme
         Column(Modifier.fillMaxSize().background(W95.desktop)) {
             // The window, maximised: frame, title bar, menu bar, tabs, page and status bar.
             Column(
@@ -209,14 +229,14 @@ object ClassicSkin : Skin() {
                 .fillMaxWidth()
                 .height(cp(20))
                 .background(
-                    if (active) Brush.horizontalGradient(listOf(W95.navy, W95.titleEnd)) else Brush.horizontalGradient(listOf(W95.shadow, Color(0xFFB5B5B5))),
+                    if (active) Brush.horizontalGradient(listOf(W95.caption, W95.captionEnd)) else Brush.horizontalGradient(listOf(W95.scheme.inactiveCaption, W95.scheme.inactiveCaptionEnd)),
                 )
                 .padding(horizontal = cp(2)),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Canvas(Modifier.size(cp(11) + cp(1), cp(9))) { drawPixels(Glyphs.disc, Offset(0f, 0f)) }
             Spacer(Modifier.width(cp(4)))
-            Text(title, style = body(bold = true), color = Color.White, maxLines = 1, overflow = TextOverflow.Clip, modifier = Modifier.weight(1f))
+            Text(title, style = body(bold = true), color = if (active) W95.scheme.captionText else W95.scheme.inactiveCaptionText, maxLines = 1, overflow = TextOverflow.Clip, modifier = Modifier.weight(1f))
             if (onClose == null) {
                 CaptionButton(Glyphs.minimise)
                 CaptionButton(Glyphs.maximise)
@@ -273,9 +293,9 @@ object ClassicSkin : Skin() {
             Text(
                 accessKeyed(title),
                 style = body(),
-                color = if (open) Color.White else Color.Black,
+                color = if (open) W95.selectionText else W95.text,
                 modifier = Modifier
-                    .then(if (open) Modifier.background(W95.navy) else Modifier)
+                    .then(if (open) Modifier.background(W95.selection) else Modifier)
                     .skinTap { open = true }
                     .padding(horizontal = cp(6), vertical = cp(2)),
             )
@@ -331,7 +351,7 @@ object ClassicSkin : Skin() {
                 .padding(horizontal = cp(8)),
             contentAlignment = Alignment.Center,
         ) {
-            Text(label, style = body(), color = Color.Black, maxLines = 1)
+            Text(label, style = body(), color = W95.text, maxLines = 1)
         }
     }
 
@@ -343,7 +363,7 @@ object ClassicSkin : Skin() {
                 Text(
                     if (p.currentSong != null) "Total Play: ${formatDurationMs(p.durationMs)} m:s" else "Ready",
                     style = body(),
-                    color = Color.Black,
+                    color = W95.text,
                     maxLines = 1,
                 )
             }
@@ -351,7 +371,7 @@ object ClassicSkin : Skin() {
                 Text(
                     if (p.currentSong != null) "Track: ${formatDurationMs(p.positionMs)} m:s" else "",
                     style = body(),
-                    color = Color.Black,
+                    color = W95.text,
                     maxLines = 1,
                 )
             }
@@ -392,12 +412,12 @@ object ClassicSkin : Skin() {
                 ) {
                     Canvas(Modifier.size(cp(16), cp(14))) { drawFlag() }
                     Spacer(Modifier.width(cp(3)))
-                    Text("Start", style = body(bold = true), color = Color.Black)
+                    Text("Start", style = body(bold = true), color = W95.text)
                 }
                 Spacer(Modifier.width(cp(4)))
                 // The running program's button, held in: Windows filled it with the checkerboard.
                 val density = LocalDensity.current
-                val dither = remember(density.density) { ditherBrush(density.density) }
+                val dither = remember(density.density, W95.scheme) { ditherBrush(density.density) }
                 Row(
                     Modifier
                         .width(cp(140))
@@ -411,7 +431,7 @@ object ClassicSkin : Skin() {
                 ) {
                     Canvas(Modifier.size(cp(12), cp(9))) { drawPixels(Glyphs.disc, Offset.Zero) }
                     Spacer(Modifier.width(cp(3)))
-                    Text("openplayer", style = body(bold = true), color = Color.Black, maxLines = 1)
+                    Text("openplayer", style = body(bold = true), color = W95.text, maxLines = 1)
                 }
                 Spacer(Modifier.weight(1f))
                 Row(
@@ -425,7 +445,7 @@ object ClassicSkin : Skin() {
                         drawPixels(listOf("    #    ", "   ##  # ", "#### #  #", "#### # # ", "#### # # ", "#### #  #", "   ##  # ", "    #    ").map { it.take(9) }, Offset.Zero)
                     }
                     Spacer(Modifier.width(cp(6)))
-                    Text("${time.time}${time.amPm?.let { " $it" }.orEmpty()}", style = body(), color = Color.Black)
+                    Text("${time.time}${time.amPm?.let { " $it" }.orEmpty()}", style = body(), color = W95.text)
                 }
             }
             if (startOpen) {
@@ -477,7 +497,7 @@ object ClassicSkin : Skin() {
         ) {
             // The band down the side, the product name reading upwards; as tall as the items.
             Box(Modifier.matchParentSize()) {
-                Box(Modifier.width(cp(21)).fillMaxHeight().background(Brush.verticalGradient(listOf(W95.navy, W95.titleEnd)))) {
+                Box(Modifier.width(cp(21)).fillMaxHeight().background(Brush.verticalGradient(listOf(W95.caption, W95.captionEnd)))) {
                     val style = pixelStyle(unitPx(LocalDensity.current) + 1, true, LocalDensity.current)
                     Text(
                         buildAnnotatedString {
@@ -533,7 +553,7 @@ object ClassicSkin : Skin() {
             Modifier
                 .fillMaxWidth()
                 .height(cp(32))
-                .then(if (pressed) Modifier.background(W95.navy) else Modifier)
+                .then(if (pressed) Modifier.background(W95.selection) else Modifier)
                 .skinClick(interaction, onClick = onClick)
                 .padding(horizontal = cp(4)),
             verticalAlignment = Alignment.CenterVertically,
@@ -543,7 +563,7 @@ object ClassicSkin : Skin() {
                 drawPixels(glyph, Offset(((size.width - gw) / 2f / unit()).roundToInt() * unit(), 0f), scale = 2)
             }
             Spacer(Modifier.width(cp(6)))
-            Text(accessKeyed(label), style = body(), color = if (pressed) Color.White else Color.Black)
+            Text(accessKeyed(label), style = body(), color = if (pressed) W95.selectionText else W95.text)
         }
     }
 
@@ -602,7 +622,7 @@ object ClassicSkin : Skin() {
                         .drawBehind { drawBevel(Rect(Offset.Zero, this.size), if (pressed) Bevel.Pressed else Bevel.Raised) },
                     contentAlignment = Alignment.Center,
                 ) {
-                    val ink = if (enabled) Color.Black.copy(alpha = opacity.coerceAtLeast(0.45f)) else W95.shadow
+                    val ink = if (enabled) W95.text.copy(alpha = opacity.coerceAtLeast(0.45f)) else W95.shadow
                     if (glyph != null) {
                         Canvas(Modifier.size(cp(glyph.maxOf { it.length }), cp(glyph.size)).offset(x = if (pressed) cp(1) else cp(0), y = if (pressed) cp(1) else cp(0))) {
                             drawPixels(glyph, Offset.Zero, ink = ink)
@@ -618,7 +638,7 @@ object ClassicSkin : Skin() {
     @Composable
     private fun Checkbox(checked: Boolean, pressed: Boolean) {
         Canvas(Modifier.size(cp(13))) {
-            drawBevel(Rect(Offset.Zero, size), Bevel.Field, if (pressed) W95.face else Color.White)
+            drawBevel(Rect(Offset.Zero, size), Bevel.Field, if (pressed) W95.face else W95.window)
             if (checked) drawPixels(Glyphs.check, Offset(unit() * 3, unit() * 3))
         }
     }
@@ -632,7 +652,7 @@ object ClassicSkin : Skin() {
                 .drawBehind {
                     val u = unit()
                     if (default) {
-                        drawRect(Color.Black, Offset.Zero, size)
+                        drawRect(W95.dark, Offset.Zero, size)
                         drawBevel(Rect(u, u, size.width - u, size.height - u), if (pressed) Bevel.Pressed else Bevel.Raised)
                     } else {
                         drawBevel(Rect(Offset.Zero, size), if (pressed) Bevel.Pressed else Bevel.Raised)
@@ -641,7 +661,7 @@ object ClassicSkin : Skin() {
                 .padding(horizontal = cp(10), vertical = cp(5)),
             contentAlignment = Alignment.Center,
         ) {
-            Text(label, style = body(), color = Color.Black)
+            Text(label, style = body(), color = W95.text)
         }
     }
 
@@ -658,7 +678,7 @@ object ClassicSkin : Skin() {
 
     @Composable
     override fun textField(modifier: Modifier, focused: Boolean): Modifier =
-        modifier.drawBehind { drawBevel(Rect(Offset.Zero, size), Bevel.Field, Color.White) }
+        modifier.drawBehind { drawBevel(Rect(Offset.Zero, size), Bevel.Field, W95.window) }
 
     @Composable
     override fun Divider(modifier: Modifier) {
@@ -671,7 +691,7 @@ object ClassicSkin : Skin() {
     @Composable
     override fun Scrollbar(state: LazyListState, modifier: Modifier) {
         val density = LocalDensity.current
-        val dither = remember(density.density) { ditherBrush(density.density) }
+        val dither = remember(density.density, W95.scheme) { ditherBrush(density.density) }
         Canvas(modifier.width(cp(16)).fillMaxHeight()) {
             val info = state.layoutInfo
             val total = info.totalItemsCount
@@ -700,12 +720,12 @@ object ClassicSkin : Skin() {
             val tw = thumbWidth.toPx()
             val cy = ((size.height * 0.38f) / u).roundToInt() * u
             // The channel: a sunken slot four pixels deep.
-            drawBevel(Rect(tw / 2f - 2 * u, cy - 2 * u, size.width - tw / 2f + 2 * u, cy + 2 * u), Bevel.Sunken, Color.White)
+            drawBevel(Rect(tw / 2f - 2 * u, cy - 2 * u, size.width - tw / 2f + 2 * u, cy + 2 * u), Bevel.Sunken, W95.window)
             // Notches below: one per step when there are few enough to read, else every tenth.
             val notches = if (steps in 1..24) steps + 1 else 10
             for (i in 0..notches) {
                 val x = ((tw / 2f + (size.width - tw) * i / notches) / u).roundToInt() * u
-                drawRect(Color.Black, Offset(x, size.height - 6 * u), Size(u, 3 * u))
+                drawRect(W95.text, Offset(x, size.height - 6 * u), Size(u, 3 * u))
             }
             val x = ((tw / 2f + (size.width - tw) * fraction) / u).roundToInt() * u
             // The thumb: a raised slab with a point at its foot, toward the notches.
@@ -728,7 +748,7 @@ object ClassicSkin : Skin() {
                 // Focus: Windows dotted a rectangle round the control in use.
                 var dx = 0f
                 while (dx < size.width) {
-                    drawRect(Color.Black, Offset(dx, 0f), Size(u, u))
+                    drawRect(W95.text, Offset(dx, 0f), Size(u, u))
                     dx += 2 * u
                 }
             }
@@ -754,7 +774,7 @@ object ClassicSkin : Skin() {
         ) {
             Checkbox(checked, pressed)
             Spacer(Modifier.width(cp(6)))
-            Text(label, style = textStyle(fontSizeSp, bold, LocalDensity.current), color = Color.Black, modifier = Modifier.weight(1f))
+            Text(label, style = textStyle(fontSizeSp, bold, LocalDensity.current), color = W95.text, modifier = Modifier.weight(1f))
         }
     }
 
@@ -793,21 +813,51 @@ object ClassicSkin : Skin() {
                             .padding(vertical = cp(4)),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Canvas(Modifier.size(cp(12))) {
-                            drawPixels(
-                                listOf(
-                                    "    gggg    ", "  gg####ww  ", " g##wwwwllw ", " g#wwwwwwlw ", "g#wwwwwwwwlw", "g#wwwwwwwwlw",
-                                    "g#wwwwwwwwlw", "g#wwwwwwwwlw", " glwwwwwwlw ", " gwllwwllww ", "  wwllllww  ", "    wwww    ",
-                                ),
-                                Offset.Zero,
-                            )
-                            if (i == selectedIndex) drawPixels(listOf(" ## ", "####", "####", " ## "), Offset(unit() * 4, unit() * 4))
-                        }
+                        RadioMark(i == selectedIndex)
                         Spacer(Modifier.width(cp(4)))
-                        Text(label, style = body(), color = Color.Black, maxLines = 1, overflow = TextOverflow.Clip)
+                        Text(label, style = body(), color = W95.text, maxLines = 1, overflow = TextOverflow.Clip)
                     }
                 }
             }
+        }
+    }
+
+    /** The round option button: a sunken white circle, with a black dot when chosen. */
+    @Composable
+    private fun RadioMark(selected: Boolean) {
+        Canvas(Modifier.size(cp(12))) {
+            drawPixels(
+                listOf(
+                    "    gggg    ", "  gg####ww  ", " g##wwwwllw ", " g#wwwwwwlw ", "g#wwwwwwwwlw", "g#wwwwwwwwlw",
+                    "g#wwwwwwwwlw", "g#wwwwwwwwlw", " glwwwwwwlw ", " gwllwwllww ", "  wwllllww  ", "    wwww    ",
+                ),
+                Offset.Zero,
+            )
+            if (selected) drawPixels(listOf(" ## ", "####", "####", " ## "), Offset(unit() * 4, unit() * 4))
+        }
+    }
+
+    @Composable
+    override fun ChoiceRow(label: String, selected: Boolean, onSelect: () -> Unit, modifier: Modifier, swatch: Color?) {
+        val haptics = LocalHaptics.current
+        Row(
+            modifier
+                .fillMaxWidth()
+                .semantics { role = Role.RadioButton; this.selected = selected }
+                .skinClick(remember { MutableInteractionSource() }, role = Role.RadioButton) {
+                    if (!selected) haptics?.tick()
+                    onSelect()
+                }
+                .padding(vertical = cp(4)),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            RadioMark(selected)
+            Spacer(Modifier.width(cp(6)))
+            if (swatch != null) {
+                Canvas(Modifier.size(cp(18), cp(12))) { drawBevel(Rect(Offset.Zero, size), Bevel.Field, swatch) }
+                Spacer(Modifier.width(cp(5)))
+            }
+            Text(label, style = body(), color = W95.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
         }
     }
 
@@ -829,15 +879,15 @@ object ClassicSkin : Skin() {
                     Modifier
                         .fillMaxWidth()
                         .height(cp(24))
-                        .then(if (pressed) Modifier.background(W95.navy) else Modifier)
+                        .then(if (pressed) Modifier.background(W95.selection) else Modifier)
                         .skinClick(interaction) { onPick(item) }
                         .padding(end = cp(20)),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(Modifier.width(cp(20)), contentAlignment = Alignment.Center) {
-                        if (item.selected) Canvas(Modifier.size(cp(7))) { drawPixels(Glyphs.check, Offset.Zero, ink = if (pressed) Color.White else Color.Black) }
+                        if (item.selected) Canvas(Modifier.size(cp(7))) { drawPixels(Glyphs.check, Offset.Zero, ink = if (pressed) W95.selectionText else W95.text) }
                     }
-                    Text(item.label, style = body(), color = if (pressed) Color.White else Color.Black, maxLines = 1)
+                    Text(item.label, style = body(), color = if (pressed) W95.selectionText else W95.text, maxLines = 1)
                 }
             }
         }
@@ -852,9 +902,9 @@ object ClassicSkin : Skin() {
                     Canvas(Modifier.size(cp(30), cp(26))) { drawPixels(Glyphs.info, Offset.Zero, scale = 2) }
                     Spacer(Modifier.width(cp(10)))
                     Column(Modifier.weight(1f)) {
-                        Text(title, style = body(bold = true), color = Color.Black)
+                        Text(title, style = body(bold = true), color = W95.text)
                         Spacer(Modifier.height(cp(4)))
-                        Text(message, style = body(), color = Color.Black)
+                        Text(message, style = body(), color = W95.text)
                     }
                 }
                 Spacer(Modifier.height(cp(10)))
@@ -875,8 +925,8 @@ object ClassicSkin : Skin() {
     @Composable
     override fun Collection(entries: List<CollectionEntry>, emptyMessage: String?, modifier: Modifier) {
         // Explorer's Large Icons view, in a sunken white window.
-        Box(modifier.drawBehind { drawBevel(Rect(Offset.Zero, size), Bevel.Field, Color.White) }.padding(cp(2))) {
-            if (emptyMessage != null) Text(emptyMessage, style = body(), color = Color.Black, modifier = Modifier.padding(cp(6)))
+        Box(modifier.drawBehind { drawBevel(Rect(Offset.Zero, size), Bevel.Field, W95.window) }.padding(cp(2))) {
+            if (emptyMessage != null) Text(emptyMessage, style = body(), color = W95.windowText, modifier = Modifier.padding(cp(6)))
             LazyVerticalGrid(columns = GridCells.Fixed(3), modifier = Modifier.fillMaxSize().padding(cp(4))) {
                 items(entries, key = { it.key }) { entry ->
                     Box(
@@ -893,17 +943,17 @@ object ClassicSkin : Skin() {
                                     CollectionEntry.Kind.Tag -> Glyphs.tag.map { it.replace('#', 'n') }
                                     CollectionEntry.Kind.Playlist -> Glyphs.note.map { it.replace('#', 'n') }
                                 }
-                                drawPixels(badge, Offset(unit() * 13, unit() * 11), ink = Color.Black)
+                                drawPixels(badge, Offset(unit() * 13, unit() * 11), ink = W95.windowText)
                             }
                             Spacer(Modifier.height(cp(3)))
                             Text(
                                 entry.title,
                                 style = body(),
-                                color = if (entry.emphasized) Color.White else Color.Black,
+                                color = if (entry.emphasized) W95.selectionText else W95.windowText,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                modifier = if (entry.emphasized) Modifier.background(W95.navy).padding(horizontal = cp(1)) else Modifier,
+                                modifier = if (entry.emphasized) Modifier.background(W95.selection).padding(horizontal = cp(1)) else Modifier,
                             )
                         }
                         entry.menu()
@@ -915,7 +965,7 @@ object ClassicSkin : Skin() {
 
     @Composable
     override fun ListWell(modifier: Modifier, content: @Composable BoxScope.() -> Unit) {
-        Column(modifier.drawBehind { drawBevel(Rect(Offset.Zero, size), Bevel.Field, Color.White) }.padding(cp(2))) {
+        Column(modifier.drawBehind { drawBevel(Rect(Offset.Zero, size), Bevel.Field, W95.window) }.padding(cp(2))) {
             Row(Modifier.fillMaxWidth().height(cp(18))) {
                 HeaderButton("Name", Modifier.weight(1f))
                 HeaderButton("Artist", Modifier.width(cp(110) + cp(16)))
@@ -927,7 +977,7 @@ object ClassicSkin : Skin() {
     @Composable
     private fun HeaderButton(label: String, modifier: Modifier) {
         Box(modifier.fillMaxHeight().drawBehind { drawBevel(Rect(Offset.Zero, size), Bevel.Raised) }.padding(horizontal = cp(4)), contentAlignment = Alignment.CenterStart) {
-            Text(label, style = body(), color = Color.Black, maxLines = 1)
+            Text(label, style = body(), color = W95.text, maxLines = 1)
         }
     }
 
@@ -945,14 +995,14 @@ object ClassicSkin : Skin() {
                     MarqueeText(
                         text = model.title,
                         style = body(),
-                        color = if (model.isCurrent) Color.White else Color.Black,
+                        color = if (model.isCurrent) W95.selectionText else W95.windowText,
                         scrollRequest = model.titleScrollRequest,
                         idleOverflow = TextOverflow.Ellipsis,
-                        modifier = if (model.isCurrent) Modifier.background(W95.navy).padding(horizontal = cp(1)) else Modifier,
+                        modifier = if (model.isCurrent) Modifier.background(W95.selection).padding(horizontal = cp(1)) else Modifier,
                     )
                 }
                 Spacer(Modifier.width(cp(6)))
-                Text(model.artist, style = body(), color = Color.Black, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.width(cp(104)))
+                Text(model.artist, style = body(), color = W95.windowText, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.width(cp(104)))
             }
             model.menu()
         }
@@ -972,7 +1022,7 @@ object ClassicSkin : Skin() {
                     .padding(start = cp(8), end = cp(8), top = cp(12), bottom = cp(8)),
                 content = content,
             )
-            Text(caption, style = body(), color = Color.Black, modifier = Modifier.padding(start = cp(8)).background(W95.face).padding(horizontal = cp(2)))
+            Text(caption, style = body(), color = W95.text, modifier = Modifier.padding(start = cp(8)).background(W95.face).padding(horizontal = cp(2)))
         }
     }
 
@@ -991,17 +1041,17 @@ object ClassicSkin : Skin() {
     @Composable
     private fun FieldRow(label: String, value: String, onHold: (() -> Unit)? = null) {
         Row(Modifier.fillMaxWidth().padding(vertical = cp(2)), verticalAlignment = Alignment.CenterVertically) {
-            Text(label, style = body(), color = Color.Black, modifier = Modifier.width(cp(40)))
+            Text(label, style = body(), color = W95.text, modifier = Modifier.width(cp(40)))
             Row(
                 Modifier
                     .weight(1f)
                     .height(cp(22))
-                    .drawBehind { drawBevel(Rect(Offset.Zero, size), Bevel.Field, Color.White) }
+                    .drawBehind { drawBevel(Rect(Offset.Zero, size), Bevel.Field, W95.window) }
                     .then(if (onHold != null) Modifier.onTapOrHold(onHold = onHold, holdLabel = "Edit tags") else Modifier)
                     .padding(start = cp(4), end = cp(2), top = cp(2), bottom = cp(2)),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                MarqueeText(text = value, style = body(), color = Color.Black, modifier = Modifier.weight(1f))
+                MarqueeText(text = value, style = body(), color = W95.windowText, modifier = Modifier.weight(1f))
                 Box(Modifier.size(cp(16)).drawBehind { drawBevel(Rect(Offset.Zero, size), Bevel.Raised) }, contentAlignment = Alignment.Center) {
                     Canvas(Modifier.size(cp(7), cp(4))) { drawPixels(Glyphs.down, Offset.Zero) }
                 }
@@ -1094,18 +1144,18 @@ object ClassicSkin : Skin() {
             val notes = listOfNotNull("Shuffle locked".takeIf { model.shuffleLocked }, "FX on".takeIf { model.fxOn }, "Timer on".takeIf { model.sleepTimerActive }, model.message)
             if (notes.isNotEmpty()) {
                 Spacer(Modifier.height(cp(4)))
-                Text(notes.joinToString("   "), style = body(), color = Color.Black)
+                Text(notes.joinToString("   "), style = body(), color = W95.text)
             }
             if (p.upcoming.isNotEmpty()) {
                 Spacer(Modifier.height(cp(8)))
-                Text("Up next:", style = body(), color = Color.Black)
+                Text("Up next:", style = body(), color = W95.text)
                 Spacer(Modifier.height(cp(2)))
-                Column(Modifier.fillMaxWidth().drawBehind { drawBevel(Rect(Offset.Zero, size), Bevel.Field, Color.White) }.padding(cp(3))) {
+                Column(Modifier.fillMaxWidth().drawBehind { drawBevel(Rect(Offset.Zero, size), Bevel.Field, W95.window) }.padding(cp(3))) {
                     p.upcoming.take(5).forEachIndexed { i, s ->
                         Row(Modifier.fillMaxWidth().height(cp(24)).onTapOrHold(onHold = { model.onHoldSong(s) }, holdLabel = "Edit tags"), verticalAlignment = Alignment.CenterVertically) {
-                            Text("%02d".format(i + 1), style = body(), color = Color.Black, modifier = Modifier.width(cp(18)))
-                            Text(s.displayName, style = body(), color = Color.Black, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                            Text(formatDurationMs(s.durationMs), style = body(), color = Color.Black)
+                            Text("%02d".format(i + 1), style = body(), color = W95.windowText, modifier = Modifier.width(cp(18)))
+                            Text(s.displayName, style = body(), color = W95.windowText, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            Text(formatDurationMs(s.durationMs), style = body(), color = W95.windowText)
                             Spacer(Modifier.width(cp(4)))
                             IconButton(Icons.AutoMirrored.Filled.ArrowForward, "Swap for next available", { model.onSwapUpcoming(i) }, Modifier, 20.dp, 12.dp, 1f, true, ButtonKind.Plain)
                         }
@@ -1128,12 +1178,12 @@ object ClassicSkin : Skin() {
                     MarqueeText(
                         text = song?.displayName ?: if (model.playbackRestored) "No disc" else "",
                         style = body(bold = true),
-                        color = Color.Black,
+                        color = W95.text,
                         modifier = Modifier.fillMaxWidth().then(
                             if (song != null && model.onHoldTitle != null) Modifier.onTapOrHold(onHold = { model.onHoldTitle.invoke(song) }, holdLabel = "Edit tags") else Modifier,
                         ),
                     )
-                    Text(song?.artist.orEmpty(), style = body(), color = Color.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(song?.artist.orEmpty(), style = body(), color = W95.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
             Spacer(Modifier.height(cp(4)))

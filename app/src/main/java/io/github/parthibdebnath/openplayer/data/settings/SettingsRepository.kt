@@ -32,6 +32,9 @@ private val Context.settingsDataStore by preferencesDataStore(
     corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
 )
 
+/** Stored names of each theme's own options start with this, then "THEME.option". */
+private const val SKIN_CHOICE_PREFIX = "skin."
+
 /** Crossfade duration bounds, in milliseconds, and the granularity the slider steps in. Zero is off. */
 const val CROSSFADE_MIN_MS = 0
 const val CROSSFADE_MAX_MS = 30000
@@ -126,6 +129,8 @@ data class SettingsSnapshot(
     val keepScreenOn: Boolean = SettingsDefaults.KEEP_SCREEN_ON,
     val backupToFolders: Boolean = SettingsDefaults.BACKUP_TO_FOLDERS,
     val uiTheme: UiTheme = UiTheme.DEFAULT,
+    /** Each theme's own options (an accent colour, a colour scheme), keyed "THEME.option". */
+    val skinChoices: Map<String, String> = emptyMap(),
 )
 
 /**
@@ -224,6 +229,9 @@ class SettingsRepository(private val context: Context) {
             keepScreenOn = p[Keys.KEEP_SCREEN_ON] ?: SettingsDefaults.KEEP_SCREEN_ON,
             backupToFolders = p[Keys.BACKUP_TO_FOLDERS] ?: SettingsDefaults.BACKUP_TO_FOLDERS,
             uiTheme = UiTheme.fromName(p[Keys.UI_THEME]),
+            skinChoices = p.asMap().entries
+                .filter { (key, value) -> key.name.startsWith(SKIN_CHOICE_PREFIX) && value is String }
+                .associate { (key, value) -> key.name.removePrefix(SKIN_CHOICE_PREFIX) to value as String },
         )
     }
 
@@ -287,6 +295,14 @@ class SettingsRepository(private val context: Context) {
     suspend fun setBackupToFolders(value: Boolean) = set(Keys.BACKUP_TO_FOLDERS, value)
     suspend fun setUpcomingExpanded(value: Boolean) = set(Keys.UPCOMING_EXPANDED, value)
     suspend fun setUiTheme(value: UiTheme) = set(Keys.UI_THEME, value.name)
+
+    /**
+     * One of a theme's own options. Stored under a name per theme and option rather than a fixed
+     * key each, so a skin can add options without a settings change; backups carry them like any
+     * other setting, and an id a skin doesn't know reads back as that option's default.
+     */
+    suspend fun setSkinChoice(theme: UiTheme, option: String, choice: String) =
+        set(stringPreferencesKey("$SKIN_CHOICE_PREFIX${theme.name}.$option"), choice)
 
     /**
      * Every stored setting by its stored name, for a backup. Read generically rather than field

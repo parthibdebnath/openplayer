@@ -104,6 +104,9 @@ import io.github.parthibdebnath.openplayer.ui.skin.FrameModel
 import io.github.parthibdebnath.openplayer.ui.skin.MiniPlayerModel
 import io.github.parthibdebnath.openplayer.ui.skin.NowPlayingModel
 import io.github.parthibdebnath.openplayer.ui.skin.Skin
+import io.github.parthibdebnath.openplayer.ui.skin.SkinChoice
+import io.github.parthibdebnath.openplayer.ui.skin.SkinChoices
+import io.github.parthibdebnath.openplayer.ui.skin.SkinOption
 import io.github.parthibdebnath.openplayer.ui.skin.SkinFonts
 import io.github.parthibdebnath.openplayer.ui.skin.SliderLook
 import io.github.parthibdebnath.openplayer.ui.skin.SongRowModel
@@ -116,12 +119,26 @@ import io.github.parthibdebnath.openplayer.util.LocalHaptics
 import io.github.parthibdebnath.openplayer.util.formatClockTime
 import io.github.parthibdebnath.openplayer.util.formatDurationMs
 
-private object M {
-    /** Windows Phone's magenta, the Zune's pink. */
-    val accent = Color(0xFFFF0097)
-    val subtle = Color(0xFF999999)
-    val chrome = Color(0xFF1F1F1F)
-    val inactive = Color(0xFF4D4D4D)
+
+/**
+ * Windows Phone 7's theme: a dark or light background and one accent colour, picked in the phone's
+ * settings. The greys are the phone's own theme resources for each background.
+ */
+internal class MetroPalette(val accent: Color, light: Boolean) {
+    val bg = if (light) Color.White else Color.Black
+    val fg = if (light) Color.Black else Color.White
+    val subtle = if (light) Color(0xFF666666) else Color(0xFF999999)
+    /** Message boxes, the app bar and the sleep timer's band. */
+    val chrome = if (light) Color(0xFFDDDDDD) else Color(0xFF1F1F1F)
+    /** Pivot headers that aren't the current one. */
+    val inactive = if (light) Color(0xFFB3B3B3) else Color(0xFF4D4D4D)
+    val field = if (light) Color(0xFFD9D9D9) else Color(0xFFBFBFBF)
+    val track = if (light) Color(0xFFCCCCCC) else Color(0xFF3B3B3B)
+    val scrollThumb = if (light) Color(0xFF999999) else Color(0xFF6B6B6B)
+    /** Tiles that aren't lit: Favourites, tags, a switch that's off. */
+    val tile = if (light) Color(0xFFD6D6D6) else Color(0xFF333333)
+    val tileInk = if (light) Color.Black else Color.White
+    val ghostAlpha = if (light) 0.06f else 0.08f
 }
 
 /**
@@ -129,11 +146,38 @@ private object M {
  * and lowercase so it runs off the edge, a panorama title that drifts as you move between the
  * pivots, round app-bar icons and flat square tiles. Nothing is drawn that isn't type or a flat block.
  */
-object MetroSkin : Skin() {
+class MetroSkin private constructor(private val P: MetroPalette) : Skin() {
     override val theme = UiTheme.METRO
-    override val colors = AppColors(background = Color.Black, onBackground = Color.White)
+    override val colors = AppColors(background = P.bg, onBackground = P.fg)
     override val showsHeader = false
     override val gutter: Dp = 18.dp
+
+    companion object {
+        /** Windows Phone 7's ten accents, magenta (the Zune's pink) first, as the phone listed them after its default. */
+        private val Accents = listOf(
+            SkinChoice("magenta", "Magenta", Color(0xFFFF0097)),
+            SkinChoice("purple", "Purple", Color(0xFFA200FF)),
+            SkinChoice("teal", "Teal", Color(0xFF00ABA9)),
+            SkinChoice("lime", "Lime", Color(0xFF8CBF26)),
+            SkinChoice("brown", "Brown", Color(0xFFA05000)),
+            SkinChoice("pink", "Pink", Color(0xFFE671B8)),
+            SkinChoice("mango", "Mango", Color(0xFFF09609)),
+            SkinChoice("blue", "Blue", Color(0xFF1BA1E2)),
+            SkinChoice("red", "Red", Color(0xFFE51400)),
+            SkinChoice("green", "Green", Color(0xFF339933)),
+        )
+        private val Accent = SkinOption("accent", "Accent colour", Accents, SkinOption.Style.Swatches)
+        private val Background = SkinOption(
+            "background",
+            "Background",
+            listOf(SkinChoice("dark", "Dark"), SkinChoice("light", "Light")),
+            SkinOption.Style.Segmented,
+        )
+        val Options = listOf(Background, Accent)
+
+        fun create(choices: SkinChoices) =
+            MetroSkin(MetroPalette(accent = choices.of(Accent).swatch!!, light = choices.of(Background).id == "light"))
+    }
 
     private fun seg(size: Float, weight: FontWeight = FontWeight.Normal) =
         TextStyle(fontFamily = SkinFonts.metro, fontWeight = weight, fontSize = size.sp, lineHeight = (size * 1.2f).sp)
@@ -170,14 +214,14 @@ object MetroSkin : Skin() {
                 slide.animateTo(0f, tween(350, easing = FastOutSlowInEasing))
             }
         }
-        Column(Modifier.fillMaxSize().background(Color.Black)) {
+        Column(Modifier.fillMaxSize().background(P.bg)) {
             StatusBar(model)
             // The title: enormous, light, lowercase, and too wide for the screen.
             Box(Modifier.fillMaxWidth().height(104.dp).clipToBounds()) {
                 Text(
                     "openplayer",
                     style = seg(84f, FontWeight.Light).copy(lineHeight = 100.sp),
-                    color = Color.White,
+                    color = P.fg,
                     maxLines = 1,
                     softWrap = false,
                     modifier = Modifier
@@ -215,19 +259,19 @@ object MetroSkin : Skin() {
             Canvas(Modifier.size(width = 22.dp, height = 12.dp)) {
                 for (i in 0 until 5) {
                     val h = size.height * (i + 1) / 5f
-                    drawRect(Color.White, Offset(i * size.width / 5f, size.height - h), Size(size.width / 5f - 1.dp.toPx(), h))
+                    drawRect(P.fg, Offset(i * size.width / 5f, size.height - h), Size(size.width / 5f - 1.dp.toPx(), h))
                 }
             }
             Spacer(Modifier.weight(1f))
             val percent = batteryPercent()
             Canvas(Modifier.size(width = 22.dp, height = 11.dp)) {
                 val nub = 2.dp.toPx()
-                drawRect(Color.White, Offset.Zero, Size(size.width - nub, size.height), style = Stroke(1.dp.toPx()))
-                drawRect(Color.White, Offset(size.width - nub, size.height * 0.3f), Size(nub, size.height * 0.4f))
-                drawRect(Color.White, Offset(2.dp.toPx(), 2.dp.toPx()), Size((size.width - nub - 4.dp.toPx()) * percent / 100f, size.height - 4.dp.toPx()))
+                drawRect(P.fg, Offset.Zero, Size(size.width - nub, size.height), style = Stroke(1.dp.toPx()))
+                drawRect(P.fg, Offset(size.width - nub, size.height * 0.3f), Size(nub, size.height * 0.4f))
+                drawRect(P.fg, Offset(2.dp.toPx(), 2.dp.toPx()), Size((size.width - nub - 4.dp.toPx()) * percent / 100f, size.height - 4.dp.toPx()))
             }
             Spacer(Modifier.width(8.dp))
-            Text(time.time, style = seg(14f), color = Color.White)
+            Text(time.time, style = seg(14f), color = P.fg)
         }
     }
 
@@ -245,7 +289,7 @@ object MetroSkin : Skin() {
                 Text(
                     pivotName(model.tabs[i]),
                     style = seg(38f, FontWeight.ExtraLight),
-                    color = if (selected) Color.White else M.inactive,
+                    color = if (selected) P.fg else P.inactive,
                     maxLines = 1,
                     softWrap = false,
                     modifier = Modifier
@@ -265,7 +309,7 @@ object MetroSkin : Skin() {
 
     /** The round app bar icon: a white ring, filled white when pressed. */
     @Composable
-    private fun RoundIcon(icon: ImageVector, size: Dp, pressed: Boolean, alpha: Float = 1f, ringColor: Color = Color.White) {
+    private fun RoundIcon(icon: ImageVector, size: Dp, pressed: Boolean, alpha: Float = 1f, ringColor: Color = P.fg) {
         Box(
             Modifier
                 .size(size)
@@ -276,7 +320,7 @@ object MetroSkin : Skin() {
                 },
             contentAlignment = Alignment.Center,
         ) {
-            Icon(icon, null, tint = if (pressed) Color.Black else ringColor, modifier = Modifier.size(size * 0.5f))
+            Icon(icon, null, tint = if (pressed) P.bg else ringColor, modifier = Modifier.size(size * 0.5f))
         }
     }
 
@@ -301,12 +345,12 @@ object MetroSkin : Skin() {
                 modifier
                     .alpha(if (enabled) opacity.coerceAtLeast(0.45f) else 0.45f)
                     .then(click)
-                    .background(if (pressed) Color.White else Color.Transparent)
-                    .border(3.dp, Color.White)
+                    .background(if (pressed) P.fg else Color.Transparent)
+                    .border(3.dp, P.fg)
                     .padding(horizontal = 18.dp, vertical = 6.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(if (icon == Icons.Filled.Add) "add" else "ok", style = seg(17f), color = if (pressed) Color.Black else Color.White)
+                Text(if (icon == Icons.Filled.Add) "add" else "ok", style = seg(17f), color = if (pressed) P.bg else P.fg)
             }
             else -> Box(modifier.then(click), contentAlignment = Alignment.Center) {
                 val side = when (kind) {
@@ -326,27 +370,27 @@ object MetroSkin : Skin() {
         Canvas(Modifier.size(width = 66.dp, height = 28.dp)) {
             val border = 2.dp.toPx()
             val thumbW = 16.dp.toPx()
-            drawRect(Color.White, Offset(0f, border * 1.5f), Size(size.width - thumbW / 2f, size.height - border * 3), style = Stroke(border))
+            drawRect(P.fg, Offset(0f, border * 1.5f), Size(size.width - thumbW / 2f, size.height - border * 3), style = Stroke(border))
             val inset = border * 3
             if (position > 0f) {
-                drawRect(M.accent, Offset(inset, border * 3), Size((size.width - thumbW / 2f - inset * 2) * position, size.height - border * 6))
+                drawRect(P.accent, Offset(inset, border * 3), Size((size.width - thumbW / 2f - inset * 2) * position, size.height - border * 6))
             }
             val x = (size.width - thumbW) * position
-            drawRect(Color.White, Offset(x, 0f), Size(thumbW, size.height))
+            drawRect(P.fg, Offset(x, 0f), Size(thumbW, size.height))
         }
     }
 
     @Composable
     override fun panel(modifier: Modifier, shape: Shape, role: GlassRole, opacity: Float): Modifier = when (role) {
         GlassRole.Control -> modifier.drawBehind {
-            drawOutline(shape.createOutline(size, layoutDirection, this), Color.White, style = Stroke(2.dp.toPx()))
+            drawOutline(shape.createOutline(size, layoutDirection, this), P.fg, style = Stroke(2.dp.toPx()))
         }
-        else -> modifier.background(M.chrome)
+        else -> modifier.background(P.chrome)
     }
 
     @Composable
     override fun textField(modifier: Modifier, focused: Boolean): Modifier =
-        modifier.background(if (focused) Color.White else Color(0xFFBFBFBF)).border(2.dp, if (focused) M.accent else Color(0xFFBFBFBF))
+        modifier.background(if (focused) Color.White else P.field).border(2.dp, if (focused) P.accent else P.field)
 
     override fun textFieldInk(focused: Boolean): Color = Color.Black
 
@@ -364,7 +408,7 @@ object MetroSkin : Skin() {
             if (total == 0 || visible == 0 || visible >= total) return@Canvas
             val h = (size.height * visible / total).coerceAtLeast(24.dp.toPx())
             val top = (size.height - h) * (state.firstVisibleItemIndex.toFloat() / (total - visible)).coerceIn(0f, 1f)
-            drawRect(Color(0xFF6B6B6B), Offset(0f, top), Size(size.width, h))
+            drawRect(P.scrollThumb, Offset(0f, top), Size(size.width, h))
         }
     }
 
@@ -375,10 +419,10 @@ object MetroSkin : Skin() {
             val tw = thumbWidth.toPx()
             val trackH = 12.dp.toPx()
             val top = (size.height - trackH) / 2f
-            drawRect(Color(0xFF3B3B3B), Offset(0f, top), Size(size.width, trackH))
+            drawRect(P.track, Offset(0f, top), Size(size.width, trackH))
             val x = tw / 2f + (size.width - tw) * fraction
-            drawRect(if (enabled) M.accent else M.inactive, Offset(0f, top), Size(x, trackH))
-            drawRect(Color.White, Offset(x - tw / 2f, 0f), Size(tw, size.height))
+            drawRect(if (enabled) P.accent else P.inactive, Offset(0f, top), Size(x, trackH))
+            drawRect(P.fg, Offset(x - tw / 2f, 0f), Size(tw, size.height))
         }
     }
 
@@ -395,9 +439,9 @@ object MetroSkin : Skin() {
                     onToggle(!checked)
                 },
         ) {
-            Text(label.lowercase(), style = seg(16f), color = if (bold) Color.White else M.subtle)
+            Text(label.lowercase(), style = seg(16f), color = if (bold) P.fg else P.subtle)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(if (checked) "On" else "Off", style = seg(26f, FontWeight.ExtraLight), color = Color.White, modifier = Modifier.weight(1f))
+                Text(if (checked) "On" else "Off", style = seg(26f, FontWeight.ExtraLight), color = P.fg, modifier = Modifier.weight(1f))
                 ToggleSwitch(checked)
             }
         }
@@ -424,7 +468,7 @@ object MetroSkin : Skin() {
                 Text(
                     label.lowercase(),
                     style = seg(if (height >= 48.dp) 28f else 20f, FontWeight.ExtraLight),
-                    color = if (selected) Color.White else M.inactive,
+                    color = if (selected) P.fg else P.inactive,
                     maxLines = 1,
                     modifier = Modifier
                         .semantics { role = Role.Tab; this.selected = selected }
@@ -438,17 +482,46 @@ object MetroSkin : Skin() {
         }
     }
 
+    /** A list picker's full-screen list: the names large and lowercase, the chosen one in the accent. */
+    @Composable
+    override fun ChoiceRow(label: String, selected: Boolean, onSelect: () -> Unit, modifier: Modifier, swatch: Color?) {
+        val haptics = LocalHaptics.current
+        Row(
+            modifier
+                .fillMaxWidth()
+                .semantics { role = Role.RadioButton; this.selected = selected }
+                .skinClick(remember { MutableInteractionSource() }, role = Role.RadioButton) {
+                    if (!selected) haptics?.tick()
+                    onSelect()
+                }
+                .padding(vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (swatch != null) {
+                Box(Modifier.size(28.dp).background(swatch))
+                Spacer(Modifier.width(14.dp))
+            }
+            Text(
+                label.lowercase(),
+                style = seg(22f, FontWeight.ExtraLight),
+                color = if (selected) P.accent else P.fg,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+
     @Composable
     override fun Menu(items: List<ContextMenuItem>, onPick: (ContextMenuItem) -> Unit) {
-        // Windows Phone's context menu: white, edge to edge, in large black type.
-        Column(Modifier.fillMaxWidth().widthIn(min = 300.dp).background(Color.White).padding(vertical = 10.dp)) {
+        // Windows Phone's context menu: the opposite of the page (white on a dark phone), edge to edge, in large type.
+        Column(Modifier.fillMaxWidth().widthIn(min = 300.dp).background(P.fg).padding(vertical = 10.dp)) {
             items.forEach { item ->
                 val interaction = remember { MutableInteractionSource() }
                 val pressed by pressedState(interaction)
                 Text(
                     item.label.lowercase() + if (item.selected) "  ✓" else "",
                     style = seg(24f, FontWeight.Normal),
-                    color = if (pressed) M.accent else Color.Black,
+                    color = if (pressed) P.accent else P.bg,
                     modifier = Modifier.fillMaxWidth().skinClick(interaction) { onPick(item) }.padding(horizontal = 24.dp, vertical = 9.dp),
                 )
             }
@@ -458,10 +531,10 @@ object MetroSkin : Skin() {
     @Composable
     override fun Notification(title: String, message: String, onConfirm: () -> Unit, onDismiss: () -> Unit, modifier: Modifier) {
         // A message box: a dark band, the title large, two outlined buttons.
-        Column(modifier.fillMaxWidth().background(M.chrome).padding(18.dp)) {
-            Text(title, style = seg(24f, FontWeight.SemiBold), color = Color.White)
+        Column(modifier.fillMaxWidth().background(P.chrome).padding(18.dp)) {
+            Text(title, style = seg(24f, FontWeight.SemiBold), color = P.fg)
             Spacer(Modifier.height(8.dp))
-            Text(message, style = seg(17f), color = Color.White)
+            Text(message, style = seg(17f), color = P.fg)
             Spacer(Modifier.height(16.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 listOf("ok" to onConfirm, "cancel" to onDismiss).forEach { (label, action) ->
@@ -471,13 +544,13 @@ object MetroSkin : Skin() {
                         Modifier
                             .weight(1f)
                             .then(if (label == "cancel") Modifier.testTag("dialog:dismiss") else Modifier)
-                            .background(if (pressed) Color.White else Color.Transparent)
-                            .border(3.dp, Color.White)
+                            .background(if (pressed) P.fg else Color.Transparent)
+                            .border(3.dp, P.fg)
                             .skinClick(interaction) { action() }
                             .padding(vertical = 8.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(label, style = seg(18f), color = if (pressed) Color.Black else Color.White)
+                        Text(label, style = seg(18f), color = if (pressed) P.bg else P.fg)
                     }
                 }
             }
@@ -487,11 +560,11 @@ object MetroSkin : Skin() {
     // --- lists ---------------------------------------------------------------------------------------
 
     @Composable
-    private fun Tile(icon: ImageVector, size: Dp, color: Color = M.accent, label: String? = null, modifier: Modifier = Modifier) {
+    private fun Tile(icon: ImageVector, size: Dp, color: Color = P.accent, label: String? = null, modifier: Modifier = Modifier, ink: Color = Color.White) {
         Box(modifier.size(size).background(color)) {
-            Icon(icon, null, tint = Color.White, modifier = Modifier.align(if (label == null) Alignment.Center else Alignment.TopCenter).padding(top = if (label == null) 0.dp else size * 0.2f).size(size * 0.4f))
+            Icon(icon, null, tint = ink, modifier = Modifier.align(if (label == null) Alignment.Center else Alignment.TopCenter).padding(top = if (label == null) 0.dp else size * 0.2f).size(size * 0.4f))
             if (label != null) {
-                Text(label, style = seg(13f), color = Color.White, modifier = Modifier.align(Alignment.BottomStart).padding(6.dp), maxLines = 1)
+                Text(label, style = seg(13f), color = ink, modifier = Modifier.align(Alignment.BottomStart).padding(6.dp), maxLines = 1)
             }
         }
     }
@@ -499,7 +572,7 @@ object MetroSkin : Skin() {
     @Composable
     override fun Collection(entries: List<CollectionEntry>, emptyMessage: String?, modifier: Modifier) {
         Box(modifier) {
-            if (emptyMessage != null) Text(emptyMessage, style = seg(17f), color = M.subtle)
+            if (emptyMessage != null) Text(emptyMessage, style = seg(17f), color = P.subtle)
             LazyColumn(Modifier.fillMaxSize()) {
                 items(entries, key = { it.key }) { entry ->
                     Box(
@@ -516,18 +589,19 @@ object MetroSkin : Skin() {
                                     CollectionEntry.Kind.Playlist -> Icons.Filled.MusicNote
                                 },
                                 62.dp,
-                                color = if (entry.kind == CollectionEntry.Kind.Playlist) M.accent else Color(0xFF3B3B3B),
+                                color = if (entry.kind == CollectionEntry.Kind.Playlist) P.accent else P.tile,
+                                ink = if (entry.kind == CollectionEntry.Kind.Playlist) Color.White else P.tileInk,
                             )
                             Spacer(Modifier.width(14.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(
                                     entry.title.lowercase(),
                                     style = seg(26f, FontWeight.ExtraLight),
-                                    color = if (entry.emphasized) M.accent else Color.White,
+                                    color = if (entry.emphasized) P.accent else P.fg,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
-                                Text(entry.subtitle, style = seg(15f), color = M.subtle, maxLines = 1)
+                                Text(entry.subtitle, style = seg(15f), color = P.subtle, maxLines = 1)
                             }
                         }
                         entry.menu()
@@ -548,13 +622,13 @@ object MetroSkin : Skin() {
                 MarqueeText(
                     text = model.title.lowercase(),
                     style = seg(22f, FontWeight.ExtraLight),
-                    color = if (model.isCurrent) M.accent else Color.White,
+                    color = if (model.isCurrent) P.accent else P.fg,
                     scrollRequest = model.titleScrollRequest,
                     idleOverflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(10.dp))
-                Text(model.artist.lowercase(), style = seg(15f), color = M.subtle, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 120.dp))
+                Text(model.artist.lowercase(), style = seg(15f), color = P.subtle, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 120.dp))
             }
             model.menu()
         }
@@ -579,7 +653,7 @@ object MetroSkin : Skin() {
                 Text(
                     song.artist.lowercase(),
                     style = seg(170f, FontWeight.Light).copy(lineHeight = 170.sp),
-                    color = Color.White.copy(alpha = 0.08f),
+                    color = P.fg.copy(alpha = P.ghostAlpha),
                     maxLines = 1,
                     softWrap = false,
                     modifier = Modifier
@@ -591,18 +665,18 @@ object MetroSkin : Skin() {
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp)) {
                 model.header(Modifier.fillMaxWidth())
                 model.sleepTimerPanel?.let { panel ->
-                    panel(Modifier.fillMaxWidth().background(M.chrome).padding(14.dp))
+                    panel(Modifier.fillMaxWidth().background(P.chrome).padding(14.dp))
                     Spacer(Modifier.height(12.dp))
                 }
                 Row(verticalAlignment = Alignment.Bottom) {
                     Tile(Icons.Filled.MusicNote, 132.dp)
                     Spacer(Modifier.width(14.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(p.playlistLabel.lowercase(), style = seg(15f), color = M.subtle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(p.playlistLabel.lowercase(), style = seg(15f), color = P.subtle, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
                             song?.artist?.uppercase() ?: "",
                             style = seg(15f, FontWeight.SemiBold),
-                            color = M.accent,
+                            color = P.accent,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -615,7 +689,7 @@ object MetroSkin : Skin() {
                     Modifier.fillMaxWidth().then(
                         if (song != null) Modifier.onTapOrHold(onHold = model.onHoldTitle, holdLabel = "Edit tags") else Modifier.skinTap(onClick = model.onOpenLibrary),
                     ),
-                    color = Color.White,
+                    color = P.fg,
                 )
                 if (song != null) {
                     Spacer(Modifier.height(8.dp))
@@ -627,9 +701,9 @@ object MetroSkin : Skin() {
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Row(Modifier.fillMaxWidth()) {
-                        Text(formatDurationMs(p.positionMs), style = seg(15f), color = M.subtle)
+                        Text(formatDurationMs(p.positionMs), style = seg(15f), color = P.subtle)
                         Spacer(Modifier.weight(1f))
-                        Text(formatDurationMs((p.durationMs - p.positionMs).coerceAtLeast(0)), style = seg(15f), color = M.subtle)
+                        Text(formatDurationMs((p.durationMs - p.positionMs).coerceAtLeast(0)), style = seg(15f), color = P.subtle)
                     }
                 }
                 Spacer(Modifier.height(10.dp))
@@ -651,17 +725,17 @@ object MetroSkin : Skin() {
                 val notes = listOfNotNull("shuffle locked".takeIf { model.shuffleLocked }, "effects on".takeIf { model.fxOn }, model.message?.lowercase())
                 if (notes.isNotEmpty()) {
                     Spacer(Modifier.height(10.dp))
-                    Text(notes.joinToString("   "), style = seg(15f), color = M.subtle)
+                    Text(notes.joinToString("   "), style = seg(15f), color = P.subtle)
                 }
                 if (p.upcoming.isNotEmpty()) {
                     Spacer(Modifier.height(22.dp))
-                    Text("up next", style = seg(32f, FontWeight.ExtraLight), color = Color.White)
+                    Text("up next", style = seg(32f, FontWeight.ExtraLight), color = P.fg)
                     Spacer(Modifier.height(4.dp))
                     p.upcoming.take(5).forEachIndexed { i, s ->
                         Row(Modifier.fillMaxWidth().onTapOrHold(onHold = { model.onHoldSong(s) }, holdLabel = "Edit tags").padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
-                                Text(s.displayName.lowercase(), style = seg(22f, FontWeight.ExtraLight), color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(s.artist.lowercase(), style = seg(14f), color = M.subtle, maxLines = 1)
+                                Text(s.displayName.lowercase(), style = seg(22f, FontWeight.ExtraLight), color = P.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(s.artist.lowercase(), style = seg(14f), color = P.subtle, maxLines = 1)
                             }
                             IconButton(Icons.AutoMirrored.Filled.ArrowForward, "Swap for next available", { model.onSwapUpcoming(i) }, Modifier, 36.dp, 18.dp, 1f, true, ButtonKind.Plain)
                         }
@@ -680,8 +754,9 @@ object MetroSkin : Skin() {
         Tile(
             icon,
             78.dp,
-            color = if (on) M.accent else Color(0xFF333333),
+            color = if (on) P.accent else P.tile,
             label = label,
+            ink = if (on) Color.White else P.tileInk,
             modifier = Modifier
                 .semantics { contentDescription = label; selected = on }
                 .graphicsLayer {
@@ -701,7 +776,7 @@ object MetroSkin : Skin() {
     override fun MiniPlayer(model: MiniPlayerModel, modifier: Modifier) {
         val song = model.song
         // The application bar: a dark strip of round icons, with the song beside them.
-        Column(modifier.fillMaxWidth().background(M.chrome).padding(horizontal = 14.dp, vertical = 8.dp)) {
+        Column(modifier.fillMaxWidth().background(P.chrome).padding(horizontal = 14.dp, vertical = 8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     MarqueeText(
@@ -710,9 +785,9 @@ object MetroSkin : Skin() {
                         Modifier.fillMaxWidth().then(
                             if (song != null && model.onHoldTitle != null) Modifier.onTapOrHold(onHold = { model.onHoldTitle.invoke(song) }, holdLabel = "Edit tags") else Modifier,
                         ),
-                        color = Color.White,
+                        color = P.fg,
                     )
-                    Text(song?.artist?.lowercase().orEmpty(), style = seg(14f), color = M.subtle, maxLines = 1)
+                    Text(song?.artist?.lowercase().orEmpty(), style = seg(14f), color = P.subtle, maxLines = 1)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(Icons.Filled.SkipPrevious, "Previous", model.onPrevious, Modifier, 40.dp, 20.dp, 1f, true, ButtonKind.Plain)
@@ -720,7 +795,7 @@ object MetroSkin : Skin() {
                     IconButton(Icons.Filled.SkipNext, "Next", model.onNext, Modifier, 40.dp, 20.dp, 1f, true, ButtonKind.Plain)
                     if (model.onOpenSettings != null) {
                         Box(Modifier.testTag("nav:settings").semantics { contentDescription = "Settings" }.skinTap(onClick = model.onOpenSettings).padding(4.dp)) {
-                            Icon(Icons.Filled.MoreHoriz, null, tint = Color.White, modifier = Modifier.size(28.dp))
+                            Icon(Icons.Filled.MoreHoriz, null, tint = P.fg, modifier = Modifier.size(28.dp))
                         }
                     }
                 }
@@ -734,8 +809,8 @@ object MetroSkin : Skin() {
                 ) { f ->
                     val h = 3.dp.toPx()
                     val top = (size.height - h) / 2f
-                    drawRect(Color(0xFF3B3B3B), Offset(0f, top), Size(size.width, h))
-                    drawRect(M.accent, Offset(0f, top), Size(size.width * f, h))
+                    drawRect(P.track, Offset(0f, top), Size(size.width, h))
+                    drawRect(P.accent, Offset(0f, top), Size(size.width * f, h))
                 }
             }
         }

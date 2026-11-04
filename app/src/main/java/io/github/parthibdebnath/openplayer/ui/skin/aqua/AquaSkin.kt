@@ -2,6 +2,7 @@ package io.github.parthibdebnath.openplayer.ui.skin.aqua
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -111,6 +112,9 @@ import io.github.parthibdebnath.openplayer.ui.skin.FrameModel
 import io.github.parthibdebnath.openplayer.ui.skin.MiniPlayerModel
 import io.github.parthibdebnath.openplayer.ui.skin.NowPlayingModel
 import io.github.parthibdebnath.openplayer.ui.skin.Skin
+import io.github.parthibdebnath.openplayer.ui.skin.SkinChoice
+import io.github.parthibdebnath.openplayer.ui.skin.SkinChoices
+import io.github.parthibdebnath.openplayer.ui.skin.SkinOption
 import io.github.parthibdebnath.openplayer.ui.skin.SkinFonts
 import io.github.parthibdebnath.openplayer.ui.skin.SliderLook
 import io.github.parthibdebnath.openplayer.ui.skin.SongRowModel
@@ -131,11 +135,24 @@ import java.util.Locale
  * with gel traffic lights, pinstriped content, blue gel for whatever's default or on, and an
  * iTunes status display for what's playing. Play is a lickable blue gel pill.
  */
-object AquaSkin : Skin() {
+class AquaSkin private constructor(private val graphite: Boolean) : Skin() {
     override val theme = UiTheme.AQUA
     override val colors = AppColors(background = Color(0xFFEDEDED), onBackground = AquaColors.text)
     override val gutter: Dp = 12.dp
     override val showsHeader = false
+
+    companion object {
+        private val Appearance = SkinOption(
+            "appearance",
+            "Appearance",
+            listOf(SkinChoice("blue", "Blue", Color(0xFF3875D7)), SkinChoice("graphite", "Graphite", Color(0xFF6F7D93))),
+            SkinOption.Style.Segmented,
+            note = "Graphite turns the buttons, menus and windows grey, as Mac OS X's own Graphite appearance did.",
+        )
+        val Options = listOf(Appearance)
+
+        fun create(choices: SkinChoices) = AquaSkin(graphite = choices.of(Appearance).id == "graphite")
+    }
 
     override fun textStyle(sizeSp: Int, bold: Boolean, density: Density): TextStyle {
         // Lucida Grande ran small and wide; the app's sizes come down a little to match it.
@@ -160,6 +177,8 @@ object AquaSkin : Skin() {
 
     @Composable
     override fun Frame(model: FrameModel, content: @Composable (Modifier) -> Unit) {
+        // Everything below draws in this appearance; set before any of it composes.
+        if (AquaAppearance.graphite != graphite) AquaAppearance.graphite = graphite
         val density = LocalDensity.current
         var metal by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
         val stripes = remember(density.density) { pinstripeBrush(density.density) }
@@ -167,7 +186,7 @@ object AquaSkin : Skin() {
             Modifier
                 .fillMaxSize()
                 // The desktop, seen only past the window's rounded top corners.
-                .background(Brush.verticalGradient(listOf(Color(0xFF3A6EC4), Color(0xFF6FA0E0))))
+                .background(Brush.verticalGradient(AquaColors.desktop))
                 .onSizeChanged { size ->
                     if (metal == null || metal!!.width != size.width || metal!!.height != size.height) {
                         metal = brushedMetal(size.width, size.height)
@@ -534,7 +553,7 @@ object AquaSkin : Skin() {
         ) {
             val icon = if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow
             Box {
-                Icon(icon, null, tint = Color(0xFF0D2E6E).copy(alpha = 0.55f), modifier = Modifier.size(30.dp).offset(y = (-1).dp))
+                Icon(icon, null, tint = AquaColors.gelInk.copy(alpha = 0.55f), modifier = Modifier.size(30.dp).offset(y = (-1).dp))
                 Icon(icon, null, tint = Color.White, modifier = Modifier.size(30.dp))
             }
         }
@@ -557,7 +576,7 @@ object AquaSkin : Skin() {
                         lineTo(size.width * 0.43f, size.height * 0.74f)
                         lineTo(size.width * 0.80f, size.height * 0.22f)
                     }
-                    drawPath(path, Color(0xFF0D2A66).copy(alpha = 0.5f), style = Stroke(px(2.6f)), alpha = 1f)
+                    drawPath(path, AquaColors.gelInk.copy(alpha = 0.5f), style = Stroke(px(2.6f)), alpha = 1f)
                     drawPath(path, Color.Black, style = Stroke(px(2.2f)))
                 }
             }
@@ -699,6 +718,42 @@ object AquaSkin : Skin() {
             Checkbox(checked, Modifier.size(24.dp), pressed)
             Spacer(Modifier.width(8.dp))
             Text(label, style = textStyle(fontSizeSp, bold, LocalDensity.current), color = Color.Black, modifier = Modifier.weight(1f))
+        }
+    }
+
+    /** A radio button: a white gel bead, turned blue (or graphite) with a dark dot when chosen. */
+    @Composable
+    override fun ChoiceRow(label: String, selected: Boolean, onSelect: () -> Unit, modifier: Modifier, swatch: Color?) {
+        val interaction = remember { MutableInteractionSource() }
+        val pressed by pressedState(interaction)
+        val haptics = LocalHaptics.current
+        Row(
+            modifier
+                .fillMaxWidth()
+                .semantics { role = Role.RadioButton; this.selected = selected }
+                .skinClick(interaction, role = Role.RadioButton) {
+                    if (!selected) haptics?.tick()
+                    onSelect()
+                }
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Canvas(Modifier.size(18.dp)) {
+                val gel = when {
+                    selected && pressed -> Gels.bluePressed
+                    selected -> Gels.blue
+                    pressed -> Gels.whitePressed
+                    else -> Gels.white
+                }
+                drawGelCircle(center, size.minDimension / 2f - px(1f), gel)
+                if (selected) drawCircle(Color(0xFF1A1A1A), size.minDimension * 0.14f, center)
+            }
+            Spacer(Modifier.width(8.dp))
+            if (swatch != null) {
+                Box(Modifier.size(22.dp, 14.dp).background(swatch, RoundedCornerShape(3.dp)).border(1.dp, AquaColors.wellBorder, RoundedCornerShape(3.dp)))
+                Spacer(Modifier.width(6.dp))
+            }
+            Text(label, style = textStyle(16, false, LocalDensity.current), color = Color.Black, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
         }
     }
 

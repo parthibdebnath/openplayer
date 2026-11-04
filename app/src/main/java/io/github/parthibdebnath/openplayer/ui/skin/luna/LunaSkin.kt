@@ -882,6 +882,30 @@ object LunaSkin : Skin() {
         }
     }
 
+    @Composable
+    override fun ChoiceRow(label: String, selected: Boolean, onSelect: () -> Unit, modifier: Modifier, swatch: Color?) {
+        val haptics = LocalHaptics.current
+        Row(
+            modifier
+                .fillMaxWidth()
+                .semantics { role = Role.RadioButton; this.selected = selected }
+                .skinClick(remember { MutableInteractionSource() }, role = Role.RadioButton) {
+                    if (!selected) haptics?.tick()
+                    onSelect()
+                }
+                .padding(vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Canvas(Modifier.size(15.dp)) { drawXpRadio(center, size.minDimension / 2f - px(0.5f), selected) }
+            Spacer(Modifier.width(8.dp))
+            if (swatch != null) {
+                Box(Modifier.size(20.dp, 14.dp).background(swatch).border(1.dp, Luna.fieldBorder))
+                Spacer(Modifier.width(6.dp))
+            }
+            Text(label, style = t(13f), color = Color.Black, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        }
+    }
+
     // --- menus and message boxes ------------------------------------------------------------------
 
     @Composable

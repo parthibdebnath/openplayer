@@ -107,6 +107,9 @@ import io.github.parthibdebnath.openplayer.ui.skin.MiniPlayerModel
 import io.github.parthibdebnath.openplayer.ui.skin.NowPlayingModel
 import io.github.parthibdebnath.openplayer.ui.skin.SeekBar
 import io.github.parthibdebnath.openplayer.ui.skin.Skin
+import io.github.parthibdebnath.openplayer.ui.skin.SkinChoice
+import io.github.parthibdebnath.openplayer.ui.skin.SkinChoices
+import io.github.parthibdebnath.openplayer.ui.skin.SkinOption
 import io.github.parthibdebnath.openplayer.ui.skin.SkinFonts
 import io.github.parthibdebnath.openplayer.ui.skin.SliderLook
 import io.github.parthibdebnath.openplayer.ui.skin.SongRowModel
@@ -119,6 +122,7 @@ import io.github.parthibdebnath.openplayer.util.LocalHaptics
 import io.github.parthibdebnath.openplayer.util.formatClockTime
 import io.github.parthibdebnath.openplayer.util.formatDurationMs
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.sin
@@ -137,11 +141,68 @@ private val ItemSlot = 58.dp
  * across it, the categories as a row of white icons, and the chosen category's contents in a
  * column below its icon. Everything is white, soft-edged and glowing.
  */
-object XmbSkin : Skin() {
+class XmbSkin private constructor(
+    /** The colour picked in the theme settings; null is "Original", which follows the month. */
+    private val fixedColour: Color?,
+) : Skin() {
     override val theme = UiTheme.XMB
-    override val colors = AppColors(background = Color(0xFF0E3C8C), onBackground = Color.White)
+    override val colors = AppColors(background = shade(fixedColour ?: colourForMonth(Calendar.getInstance().get(Calendar.MONTH)), 0.62f), onBackground = Color.White)
     override val showsHeader = false
     override val gutter: Dp = 22.dp
+
+    companion object {
+        /**
+         * The twelve colours the "Original" setting moves through, January to December. Sony
+         * never published the values (the PS3's own theme files say theirs are approximate), so
+         * these are matched by eye to the consoles: the PS3 hardware's January silver and
+         * February gold, and the month-by-month colours PSP owners recorded.
+         */
+        private val Months = listOf(
+            "Silver" to Color(0xFF8E9299),
+            "Gold" to Color(0xFFAF9718),
+            "Lime" to Color(0xFF6C9E25),
+            "Pink" to Color(0xFFBC5A8F),
+            "Green" to Color(0xFF2D8A3C),
+            "Purple" to Color(0xFF8858BE),
+            "Teal" to Color(0xFF1C93A0),
+            "Blue" to Color(0xFF1656B8),
+            "Violet" to Color(0xFF5A3DB0),
+            "Amber" to Color(0xFFB98321),
+            "Brown" to Color(0xFF85582D),
+            "Red" to Color(0xFFB02626),
+        )
+        private val MonthNames = listOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+
+        private fun colourForMonth(month: Int): Color = Months[month.coerceIn(0, 11)].second
+
+        private val Colour = SkinOption(
+            "colour",
+            "Colour",
+            listOf(SkinChoice("original", "Original")) +
+                Months.mapIndexed { i, (name, colour) -> SkinChoice("${i + 1}", "${MonthNames[i]} \u00B7 $name", colour) },
+            SkinOption.Style.List,
+            note = "Original changes with the month, as the PS3 and PSP did.",
+        )
+        val Options = listOf(Colour)
+
+        fun create(choices: SkinChoices) = XmbSkin(choices.of(Colour).swatch)
+
+        /** The colour darkened (below 1) or lightened (above 1), keeping its hue. */
+        private fun shade(colour: Color, factor: Float): Color = Color(
+            red = (colour.red * factor).coerceIn(0f, 1f),
+            green = (colour.green * factor).coerceIn(0f, 1f),
+            blue = (colour.blue * factor).coerceIn(0f, 1f),
+        )
+    }
+
+    /** The backdrop's colour now: the picked one, or this month's. */
+    @Composable
+    private fun baseColour(): Color {
+        if (fixedColour != null) return fixedColour
+        val now = rememberCurrentTime()
+        val month = remember(now) { Calendar.getInstance().apply { time = now }.get(Calendar.MONTH) }
+        return colourForMonth(month)
+    }
 
     private fun rodin(size: Float, weight: FontWeight = FontWeight.Normal, glow: Boolean = false) = TextStyle(
         fontFamily = SkinFonts.rodin,
@@ -211,9 +272,12 @@ object XmbSkin : Skin() {
     private fun Backdrop(modifier: Modifier) {
         val time = rememberInfiniteTransition(label = "wave")
         val phase by time.animateFloat(0f, 1f, infiniteRepeatable(tween(24000, easing = LinearEasing), RepeatMode.Restart), label = "phase")
+        val base = baseColour()
+        val gradient = remember(base) { Brush.verticalGradient(listOf(shade(base, 0.24f), shade(base, 0.7f), base, shade(base, 0.5f))) }
+        val haze = remember(base) { shade(base, 1.35f).copy(alpha = 0.2f) }
         Canvas(modifier) {
-            drawRect(Brush.verticalGradient(listOf(Color(0xFF041C4A), Color(0xFF0D3F95), Color(0xFF1656B8), Color(0xFF0A2F72))))
-            drawRect(Brush.radialGradient(listOf(Color(0x332E7BE6), Color.Transparent), center = Offset(size.width * 0.3f, size.height * 0.25f), radius = size.width))
+            drawRect(gradient)
+            drawRect(Brush.radialGradient(listOf(haze, Color.Transparent), center = Offset(size.width * 0.3f, size.height * 0.25f), radius = size.width))
             drawWave(phase)
         }
     }
@@ -462,7 +526,7 @@ object XmbSkin : Skin() {
             Modifier
                 .width(IntrinsicSize.Max)
                 .widthIn(min = 210.dp)
-                .background(Brush.horizontalGradient(listOf(Color(0xE60A1E44), Color(0xF0061229))), RoundedCornerShape(6.dp))
+                .background(Brush.horizontalGradient(listOf(shade(baseColour(), 0.3f).copy(alpha = 0.9f), shade(baseColour(), 0.17f).copy(alpha = 0.94f))), RoundedCornerShape(6.dp))
                 .border(1.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
                 .padding(vertical = 8.dp),
         ) {
