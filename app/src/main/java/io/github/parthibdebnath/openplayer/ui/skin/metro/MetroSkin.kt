@@ -104,6 +104,7 @@ import io.github.parthibdebnath.openplayer.ui.skin.FrameModel
 import io.github.parthibdebnath.openplayer.ui.skin.MiniPlayerModel
 import io.github.parthibdebnath.openplayer.ui.skin.NowPlayingModel
 import io.github.parthibdebnath.openplayer.ui.skin.Skin
+import io.github.parthibdebnath.openplayer.ui.skin.chromeSp
 import io.github.parthibdebnath.openplayer.ui.skin.SkinChoice
 import io.github.parthibdebnath.openplayer.ui.skin.SkinChoices
 import io.github.parthibdebnath.openplayer.ui.skin.SkinOption
@@ -564,7 +565,7 @@ class MetroSkin private constructor(private val P: MetroPalette) : Skin() {
         Box(modifier.size(size).background(color)) {
             Icon(icon, null, tint = ink, modifier = Modifier.align(if (label == null) Alignment.Center else Alignment.TopCenter).padding(top = if (label == null) 0.dp else size * 0.2f).size(size * 0.4f))
             if (label != null) {
-                Text(label, style = seg(13f), color = ink, modifier = Modifier.align(Alignment.BottomStart).padding(6.dp), maxLines = 1)
+                Text(label, style = seg(13f).copy(fontSize = chromeSp(13f, LocalDensity.current)), color = ink, modifier = Modifier.align(Alignment.BottomStart).padding(6.dp), maxLines = 1, softWrap = false)
             }
         }
     }

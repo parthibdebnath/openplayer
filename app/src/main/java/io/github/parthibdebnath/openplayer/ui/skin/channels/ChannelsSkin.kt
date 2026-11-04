@@ -140,6 +140,10 @@ private val Tints = listOf(
  */
 object ChannelsSkin : Skin() {
     override val theme = UiTheme.CHANNELS
+
+    /** The menu's white above; the dock's below. */
+    override val edgeTop = Color(0xFFF8F8F8)
+    override val edgeBottom = Color(0xFFF2F2F2)
     override val colors = AppColors(background = Color(0xFFF7F7F7), onBackground = Wii.text)
     override val showsHeader = false
     override val gutter: Dp = 16.dp

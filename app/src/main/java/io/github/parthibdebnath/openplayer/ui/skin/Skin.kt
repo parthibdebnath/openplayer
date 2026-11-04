@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -273,6 +274,17 @@ abstract class Skin {
     @Composable
     open fun ListWell(modifier: Modifier, content: @Composable BoxScope.() -> Unit) =
         androidx.compose.foundation.layout.Box(modifier, content = content)
+
+    /** The colours at the frame's top and bottom edges, carried on into the bands kept clear of a cutout or rounded corners. */
+    open val edgeTop: Color get() = colors.background
+    open val edgeBottom: Color get() = colors.background
+
+    /** A band at the top or bottom of the display kept clear of a cutout or rounded corners ([FrameEdges]). */
+    @Composable
+    open fun EdgeBand(top: Boolean, modifier: Modifier) =
+        androidx.compose.foundation.layout.Box(
+            modifier.then(androidx.compose.ui.Modifier.drawBehind { drawRect(if (top) edgeTop else edgeBottom) }),
+        )
 
     /** Gutter the screens leave at their sides inside this skin's frame. */
     open val gutter: Dp = 18.dp

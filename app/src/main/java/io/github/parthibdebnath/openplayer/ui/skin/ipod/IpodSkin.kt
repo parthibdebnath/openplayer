@@ -142,6 +142,10 @@ internal val LocalWheelBus = staticCompositionLocalOf<WheelBus?> { null }
  */
 object IpodSkin : Skin() {
     override val theme = UiTheme.IPOD
+
+    /** The white case, top and bottom. */
+    override val edgeTop = Color(0xFFFFFFFF)
+    override val edgeBottom = Color(0xFFEDEDED)
     override val colors = AppColors(background = Lcd.panel, onBackground = Lcd.ink)
     override val showsHeader = false
     override val showsMiniPlayer = false

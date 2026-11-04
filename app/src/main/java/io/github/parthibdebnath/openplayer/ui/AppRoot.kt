@@ -13,6 +13,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
@@ -202,33 +203,39 @@ fun AppRoot(
         Box(modifier = modifier.fillMaxSize().background(appColors.background)) {
           if (skin != null) {
             val playback by viewModel.playbackUiState.collectAsStateWithLifecycle()
-            Box(
-                Modifier.fillMaxSize().tabSwipe(enabled = skin.swipesBetweenTabs) { direction ->
-                    selectedTab = (selectedTab + direction).coerceIn(0, TOP_LEVEL_TABS.lastIndex)
-                },
-            ) {
-            skin.Frame(
-                io.github.parthibdebnath.openplayer.ui.skin.FrameModel(
-                    tabs = TOP_LEVEL_TABS,
-                    icons = TOP_LEVEL_ICONS,
-                    selectedTab = selectedTab,
-                    onSelectTab = { index ->
-                        if (index == 0 && selectedTab == 0) fileResetSignal++
-                        selectedTab = index.coerceIn(0, TOP_LEVEL_TABS.lastIndex)
+            // The frame sits between bands clear of the camera cutout and the rounded corners.
+            val edges = io.github.parthibdebnath.openplayer.ui.skin.rememberFrameEdges()
+            androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
+                if (edges.top > 0.dp) skin.EdgeBand(top = true, modifier = Modifier.fillMaxWidth().height(edges.top))
+                Box(
+                    Modifier.fillMaxWidth().weight(1f).tabSwipe(enabled = skin.swipesBetweenTabs) { direction ->
+                        selectedTab = (selectedTab + direction).coerceIn(0, TOP_LEVEL_TABS.lastIndex)
                     },
-                    playback = playback,
-                    twentyFourHour = settings.twentyFourHourClock,
-                    onPlayPause = { viewModel.togglePlayPause() },
-                    onNext = { viewModel.skipNext() },
-                    onPrevious = { viewModel.skipPrevious() },
-                    onOpenSettings = {
-                        selectedTab = 0
-                        settingsSignal++
-                    },
-                    onSwapUpcoming = { viewModel.replaceUpcomingSlot(it) },
-                ),
-                screens,
-            )
+                ) {
+                    skin.Frame(
+                        io.github.parthibdebnath.openplayer.ui.skin.FrameModel(
+                            tabs = TOP_LEVEL_TABS,
+                            icons = TOP_LEVEL_ICONS,
+                            selectedTab = selectedTab,
+                            onSelectTab = { index ->
+                                if (index == 0 && selectedTab == 0) fileResetSignal++
+                                selectedTab = index.coerceIn(0, TOP_LEVEL_TABS.lastIndex)
+                            },
+                            playback = playback,
+                            twentyFourHour = settings.twentyFourHourClock,
+                            onPlayPause = { viewModel.togglePlayPause() },
+                            onNext = { viewModel.skipNext() },
+                            onPrevious = { viewModel.skipPrevious() },
+                            onOpenSettings = {
+                                selectedTab = 0
+                                settingsSignal++
+                            },
+                            onSwapUpcoming = { viewModel.replaceUpcomingSlot(it) },
+                        ),
+                        screens,
+                    )
+                }
+                if (edges.bottom > 0.dp) skin.EdgeBand(top = false, modifier = Modifier.fillMaxWidth().height(edges.bottom))
             }
           } else {
             // The screens fill the whole display and the tab bar floats over them, rather than

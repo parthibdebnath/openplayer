@@ -142,6 +142,10 @@ private val HighlightBrush = Brush.verticalGradient(listOf(N.highlightTop, Color
  */
 object S60Skin : Skin() {
     override val theme = UiTheme.S60
+
+    /** The status pane's blue above; the softkey bar's below. */
+    override val edgeTop = Color(0xFF0E3F86)
+    override val edgeBottom = Color(0xFF0E3F86)
     override val colors = AppColors(background = N.mainTop, onBackground = N.ink)
     override val showsHeader = false
     override val gutter: Dp = 10.dp

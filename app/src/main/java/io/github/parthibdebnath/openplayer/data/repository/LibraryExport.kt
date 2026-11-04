@@ -46,9 +46,10 @@ data class ExportedPlaylist(
  * The backup kept in every playlist folder. App data is deleted with the app, and folder access
  * with it, but the music folders stay - so after a reinstall, even one signed differently that
  * Android treats as a new app, adding any one of the old folders finds everything again.
- * Hidden (a leading dot), so file managers and other players leave it out of sight.
+ * Hidden (a leading dot), so file managers and other players leave it out of sight. A preview
+ * build, installed beside the real app, keeps its own.
  */
-const val FOLDER_BACKUP_NAME = ".openplayer-backup.json"
+val FOLDER_BACKUP_NAME: String = io.github.parthibdebnath.openplayer.BuildConfig.FOLDER_BACKUP_NAME
 
 /**
  * Far above any real library's export, which is a few hundred kilobytes at most. Exports and

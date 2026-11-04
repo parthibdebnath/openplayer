@@ -96,7 +96,7 @@ fun GlassPillSwitcher(
     }
     val skin = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current
     if (skin != null) {
-        skin.Switcher(items, selectedIndex, select, modifier, height, fontSizeSp, icons)
+        io.github.parthibdebnath.openplayer.ui.skin.ChromeType { skin.Switcher(items, selectedIndex, select, modifier, height, fontSizeSp, icons) }
     } else if (LocalGlassEnabled.current && USE_APPLE_GLASS) {
         AppleGlassSwitcher(items, selectedIndex, select, modifier, height, fontSizeSp, floating, icons)
     } else if (LocalGlassEnabled.current) {

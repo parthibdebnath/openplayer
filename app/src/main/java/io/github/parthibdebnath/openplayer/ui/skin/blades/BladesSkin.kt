@@ -133,6 +133,10 @@ private enum class Face(val letter: String, val colour: Color) {
  */
 object BladesSkin : Skin() {
     override val theme = UiTheme.BLADES
+
+    /** The dark behind the blades. */
+    override val edgeTop = Color(0xFF0E1214)
+    override val edgeBottom = Color(0xFF0A0D10)
     override val colors = AppColors(background = Color(0xFF3E8A1F), onBackground = Color.White)
     override val showsHeader = false
     override val gutter: Dp = 16.dp

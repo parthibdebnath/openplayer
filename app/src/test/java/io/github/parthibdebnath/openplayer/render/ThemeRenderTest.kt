@@ -52,7 +52,8 @@ import java.util.TimeZone
  *
  * -PthemeRenderOnly=AQUA,LUNA limits it to some themes (NONE for none); -PthemeRenderVideo=true
  * also records a walkthrough of each theme, frame by frame at 30 fps, for stitching into a video;
- * -PthemeRenderVariants="METRO:background=light,accent=lime" adds looks with a theme's options set.
+ * -PthemeRenderVariants="METRO:background=light,accent=lime" adds looks with a theme's options set;
+ * -PthemeRenderEdges=36,18 renders as on a phone keeping that many dp clear at the top and bottom.
  *
  * Playback can't run here (there's no audio decoding), so the engine's published state is set
  * directly to a song part-way through; everything else goes through the app's own code.
@@ -94,6 +95,14 @@ class ThemeRenderTest {
         io.github.parthibdebnath.openplayer.util.BatteryMonitor.start(app)
         seedLibrary(app)
 
+        // Another screen, or larger text: -PthemeRenderQualifiers=w360dp-h640dp, -PthemeRenderFontScale=1.3.
+        System.getProperty("themeRender.qualifiers").orEmpty().takeIf { it.isNotBlank() }?.let { org.robolectric.RuntimeEnvironment.setQualifiers(it) }
+        System.getProperty("themeRender.fontScale").orEmpty().toFloatOrNull()?.let { org.robolectric.RuntimeEnvironment.setFontScale(it) }
+        // A phone's camera cutout and rounded corners, which the renderer has no display to give.
+        System.getProperty("themeRender.edges").orEmpty().split(',').mapNotNull { it.trim().toFloatOrNull() }.takeIf { it.size == 2 }?.let { (top, bottom) ->
+            io.github.parthibdebnath.openplayer.ui.skin.frameEdgesOverride =
+                io.github.parthibdebnath.openplayer.ui.skin.FrameEdges(androidx.compose.ui.unit.Dp(top), androidx.compose.ui.unit.Dp(bottom))
+        }
         val themes = UiTheme.entries.filter { only.isEmpty() || it.name in only }
         // The first theme is set before launch, so the first frame is already themed.
         runBlocking { SettingsRepository(app).setUiTheme(themes.firstOrNull() ?: variants.first().first) }
@@ -131,6 +140,11 @@ class ThemeRenderTest {
         settle(900)
         shot(dir, "1_play")
 
+        // The sleep timer, and the song's tags (its title held).
+        compose.onAllNodes(hasText("sleep", substring = true, ignoreCase = true).or(androidx.compose.ui.test.hasContentDescription("sleep", substring = true, ignoreCase = true)))
+            .onFirstOrNull()?.let { it.performClick(); settle(800); shot(dir, "1b_sleep_timer"); back() }
+        compose.onAllNodes(hasText("Neon Horizons", ignoreCase = true)).onFirstOrNull()?.let { longPress(it); settle(900); shot(dir, "1c_tags"); back() }
+
         tapIfPresent("upcoming:toggle")
         settle(700)
         shot(dir, "2_play_upcoming")
@@ -140,6 +154,15 @@ class ThemeRenderTest {
         goToTab("File")
         settle(900)
         shot(dir, "3_playlists")
+        // The list's own buttons: a new playlist's name, search, and several playlists at once.
+        for ((description, name) in listOf("Add playlist" to "3b_new_playlist", "Search all playlists" to "3c_search", "Play multiple playlists" to "3d_multiple")) {
+            compose.onAllNodes(androidx.compose.ui.test.hasContentDescription(description)).onFirstOrNull()?.let {
+                it.performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
+                settle(900)
+                shot(dir, name)
+                back()
+            }
+        }
 
         openPlaylist("Late Night Drive")
         settle(2500)
@@ -208,6 +231,12 @@ class ThemeRenderTest {
      * screen. Swiped rather than scrolled to: a scroll-to animates, and on this paused clock waits
      * forever. False if there's no such node.
      */
+    /** Back, as the system back gesture: closes a popup, a dialog, or the screen on top. */
+    private fun back() {
+        androidx.test.espresso.Espresso.pressBackUnconditionally()
+        settle(700)
+    }
+
     private fun scrollIntoView(matcher: androidx.compose.ui.test.SemanticsMatcher, fraction: Float): Boolean {
         if (compose.onAllNodes(matcher).fetchSemanticsNodes().isEmpty()) return false
         val screenHeight = compose.onAllNodes(androidx.compose.ui.test.isRoot()).fetchSemanticsNodes().first().size.height

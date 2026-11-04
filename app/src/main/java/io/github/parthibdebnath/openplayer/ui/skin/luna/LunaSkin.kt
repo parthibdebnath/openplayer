@@ -2,6 +2,7 @@ package io.github.parthibdebnath.openplayer.ui.skin.luna
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -118,6 +119,7 @@ import io.github.parthibdebnath.openplayer.ui.skin.FrameModel
 import io.github.parthibdebnath.openplayer.ui.skin.MiniPlayerModel
 import io.github.parthibdebnath.openplayer.ui.skin.NowPlayingModel
 import io.github.parthibdebnath.openplayer.ui.skin.Skin
+import io.github.parthibdebnath.openplayer.ui.skin.chromeSp
 import io.github.parthibdebnath.openplayer.ui.skin.SkinFonts
 import io.github.parthibdebnath.openplayer.ui.skin.SliderLook
 import io.github.parthibdebnath.openplayer.ui.skin.SongRowModel
@@ -136,6 +138,10 @@ import io.github.parthibdebnath.openplayer.util.formatDurationMs
  */
 object LunaSkin : Skin() {
     override val theme = UiTheme.LUNA
+
+    /** The title bar's blue above; the taskbar's below. */
+    override val edgeTop = Color(0xFF0050EE)
+    override val edgeBottom = Color(0xFF1941A5)
     override val colors = AppColors(background = Color(0xFFFCFCFE), onBackground = Luna.text)
     override val gutter: Dp = 10.dp
     override val showsHeader = false
@@ -396,10 +402,14 @@ object LunaSkin : Skin() {
             ) {
                 StartButton(open = startOpen, onClick = { startOpen = !startOpen })
                 Spacer(Modifier.width(8.dp))
-                // The one running program, its button held in.
+                // The one running program, its button held in. Like XP's, it narrows to make room
+                // for the tray, which is measured first.
+                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                 Row(
                     Modifier
-                        .width(156.dp)
+                        .widthIn(max = 156.dp)
+                        .fillMaxWidth()
+                        .clipToBounds()
                         .height(28.dp)
                         .clip(RoundedCornerShape(3.dp))
                         .background(Brush.verticalGradient(listOf(Color(0xFF1C47A6), Color(0xFF1E52B7), Color(0xFF2560CB))))
@@ -409,9 +419,10 @@ object LunaSkin : Skin() {
                 ) {
                     AppIcon(Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("openplayer", style = t(12.5f, color = Color.White), maxLines = 1)
+                    Text("openplayer", style = t(12.5f, color = Color.White).copy(fontSize = chromeSp(12.5f, LocalDensity.current)), maxLines = 1, softWrap = false)
                 }
-                Spacer(Modifier.weight(1f))
+                }
+                Spacer(Modifier.width(8.dp))
                 Row(
                     Modifier
                         .fillMaxHeight()
@@ -425,7 +436,12 @@ object LunaSkin : Skin() {
                 ) {
                     Icon(Icons.AutoMirrored.Filled.VolumeUp, null, tint = Color.White, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(10.dp))
-                    Text("${time.time}${time.amPm?.let { " $it" }.orEmpty()}", style = t(12.5f, color = Color.White))
+                    Text(
+                        "${time.time}${time.amPm?.let { " $it" }.orEmpty()}",
+                        style = t(12.5f, color = Color.White).copy(fontSize = chromeSp(12.5f, LocalDensity.current)),
+                        maxLines = 1,
+                        softWrap = false,
+                    )
                 }
             }
             if (startOpen) {

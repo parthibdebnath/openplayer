@@ -47,7 +47,7 @@ fun NonHomePlayerBar(
 ) {
     val skin = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current
     if (skin != null) {
-        if (skin.showsMiniPlayer) {
+        if (skin.showsMiniPlayer) io.github.parthibdebnath.openplayer.ui.skin.ChromeType {
             skin.MiniPlayer(
                 io.github.parthibdebnath.openplayer.ui.skin.MiniPlayerModel(
                     song = currentSong,

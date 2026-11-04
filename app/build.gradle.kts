@@ -28,6 +28,9 @@ android {
         targetSdk = 36
         versionCode = 12
         versionName = "0.1.0-beta.12"
+
+        // The hidden backup written into each playlist folder (see LibraryExport).
+        buildConfigField("String", "FOLDER_BACKUP_NAME", "\".openplayer-backup.json\"")
     }
 
     signingConfigs {
@@ -48,6 +51,18 @@ android {
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
+        // A build to try out on a phone that already has openplayer: optimised like a release,
+        // signed with the debug key, and installed beside the real app under its own id and name
+        // (src/preview/res), with its own data. It keeps its folder backups in a file of its
+        // own, so the two never overwrite each other's.
+        create("preview") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".preview"
+            versionNameSuffix = "-preview"
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+            buildConfigField("String", "FOLDER_BACKUP_NAME", "\".openplayer-preview-backup.json\"")
+        }
     }
 
     compileOptions {
@@ -61,6 +76,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     // JVM tests touch Media3 metadata classes, which implement Parcelable; android.jar's stubs
@@ -81,6 +97,9 @@ android {
             it.systemProperty("themeRender.only", project.findProperty("themeRenderOnly")?.toString() ?: "")
             it.systemProperty("themeRender.video", project.findProperty("themeRenderVideo")?.toString() ?: "")
             it.systemProperty("themeRender.variants", project.findProperty("themeRenderVariants")?.toString() ?: "")
+            it.systemProperty("themeRender.edges", project.findProperty("themeRenderEdges")?.toString() ?: "")
+            it.systemProperty("themeRender.qualifiers", project.findProperty("themeRenderQualifiers")?.toString() ?: "")
+            it.systemProperty("themeRender.fontScale", project.findProperty("themeRenderFontScale")?.toString() ?: "")
             // Robolectric downloads its Android runtime from Maven Central; a mirror can stand in.
             project.findProperty("robolectricRepo")?.let { url -> it.systemProperty("robolectric.dependency.repo.url", url.toString()) }
         }

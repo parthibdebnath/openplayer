@@ -69,6 +69,19 @@ fun MultiPlaylistScreen(
             LazyColumn {
                 items(playlists, key = { it.id }) { playlist ->
                     val isSelected = playlist.id in selectedIds
+                    // A skin's own check box (or switch), as its lists of choices had.
+                    val skin = io.github.parthibdebnath.openplayer.ui.skin.LocalSkin.current
+                    if (skin != null) {
+                        skin.ToggleRow(
+                            label = playlist.displayName,
+                            checked = isSelected,
+                            onToggle = { selectedIds = if (isSelected) selectedIds - playlist.id else selectedIds + playlist.id },
+                            modifier = Modifier.padding(vertical = 4.dp),
+                            bold = false,
+                            fontSizeSp = 18,
+                        )
+                        return@items
+                    }
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()

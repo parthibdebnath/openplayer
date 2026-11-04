@@ -2,6 +2,9 @@ package io.github.parthibdebnath.openplayer.ui.skin.aqua
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import io.github.parthibdebnath.openplayer.ui.skin.chromeSp
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -137,6 +140,10 @@ import java.util.Locale
  */
 class AquaSkin private constructor(private val graphite: Boolean) : Skin() {
     override val theme = UiTheme.AQUA
+
+    /** The menu bar above; the window's brushed metal below. */
+    override val edgeTop = Color(0xFFF9F9F9)
+    override val edgeBottom = Color(0xFFC1C1C3)
     override val colors = AppColors(background = Color(0xFFEDEDED), onBackground = AquaColors.text)
     override val gutter: Dp = 12.dp
     override val showsHeader = false
@@ -252,22 +259,29 @@ class AquaSkin private constructor(private val graphite: Boolean) : Skin() {
             // A gel drop in place of the Apple: this is openplayer's own menu.
             Canvas(Modifier.size(14.dp)) { drawGelCircle(center, size.minDimension / 2f, Gels.blue, shadow = false) }
             Spacer(Modifier.width(8.dp))
-            MenuTitle("openplayer", bold = true, tag = "frame:menu", items = listOf(
-                ContextMenuItem("Preferences…", onClick = model.onOpenSettings),
-            ))
-            MenuTitle("Controls", items = listOf(
-                ContextMenuItem(if (model.playback.isPlaying) "Pause" else "Play", onClick = model.onPlayPause),
-                ContextMenuItem("Next Song", onClick = model.onNext),
-                ContextMenuItem("Previous Song", onClick = model.onPrevious),
-            ))
-            MenuTitle("Window", items = model.tabs.mapIndexed { i, tab ->
-                ContextMenuItem(windowName(tab), selected = i == model.selectedTab, onClick = { model.onSelectTab(i) })
-            })
-            Spacer(Modifier.weight(1f))
-            Icon(Icons.AutoMirrored.Filled.VolumeUp, null, tint = Color.Black, modifier = Modifier.size(15.dp))
-            Spacer(Modifier.width(10.dp))
+            // Weighted, so they're measured after the clock and give way to it on a narrow screen.
+            Row(Modifier.weight(1f).clipToBounds(), verticalAlignment = Alignment.CenterVertically) {
+                MenuTitle("openplayer", bold = true, tag = "frame:menu", items = listOf(
+                    ContextMenuItem("Preferences…", onClick = model.onOpenSettings),
+                ))
+                MenuTitle("Controls", items = listOf(
+                    ContextMenuItem(if (model.playback.isPlaying) "Pause" else "Play", onClick = model.onPlayPause),
+                    ContextMenuItem("Next Song", onClick = model.onNext),
+                    ContextMenuItem("Previous Song", onClick = model.onPrevious),
+                ))
+                MenuTitle("Window", items = model.tabs.mapIndexed { i, tab ->
+                    ContextMenuItem(windowName(tab), selected = i == model.selectedTab, onClick = { model.onSelectTab(i) })
+                })
+            }
+            // On a narrow screen the volume menu extra and the day go, as menu extras did when
+            // the menus needed the room.
+            val narrow = narrowMenuBar()
+            if (!narrow) {
+                Icon(Icons.AutoMirrored.Filled.VolumeUp, null, tint = Color.Black, modifier = Modifier.size(15.dp))
+                Spacer(Modifier.width(10.dp))
+            }
             Text(
-                "$day ${time.time}${time.amPm?.let { " $it" }.orEmpty()}",
+                (if (narrow) "" else "$day ") + "${time.time}${time.amPm?.let { " $it" }.orEmpty()}",
                 style = menuText(false),
                 color = Color.Black,
                 maxLines = 1,
@@ -276,16 +290,21 @@ class AquaSkin private constructor(private val graphite: Boolean) : Skin() {
         }
     }
 
+    /** A phone too narrow for the whole menu bar at its usual spacing. */
+    @Composable
+    private fun narrowMenuBar() = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 380
+
     private fun windowName(tab: String) = when (tab) {
         "File" -> "Library"
         "Play" -> "Now Playing"
         else -> "Effects"
     }
 
+    @Composable
     private fun menuText(bold: Boolean) = TextStyle(
         fontFamily = SkinFonts.aqua,
         fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
-        fontSize = 13.5.sp,
+        fontSize = chromeSp(13.5f, LocalDensity.current),
     )
 
     @Composable
@@ -300,7 +319,7 @@ class AquaSkin private constructor(private val graphite: Boolean) : Skin() {
                     .then(if (tag != null) Modifier.testTag(tag) else Modifier)
                     .then(if (open) Modifier.background(AquaColors.selection) else Modifier)
                     .skinTap { open = true }
-                    .padding(horizontal = 7.dp, vertical = 3.dp),
+                    .padding(horizontal = if (narrowMenuBar()) 5.dp else 7.dp, vertical = 3.dp),
             )
             if (open) {
                 Popup(
@@ -428,9 +447,11 @@ class AquaSkin private constructor(private val graphite: Boolean) : Skin() {
                         } else {
                             Text(
                                 label,
-                                style = TextStyle(fontFamily = SkinFonts.aqua, fontSize = 12.5.sp),
+                                style = TextStyle(fontFamily = SkinFonts.aqua, fontSize = chromeSp(12.5f, LocalDensity.current)),
                                 color = if (selected) Color.White else Color(0xFF1A1A1A),
                                 maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 4.dp),
                             )
                         }
                     }
@@ -1002,7 +1023,7 @@ class AquaSkin private constructor(private val graphite: Boolean) : Skin() {
                 .padding(horizontal = 14.dp, vertical = if (compact) 6.dp else 10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            val lcd = TextStyle(fontFamily = SkinFonts.aqua, fontSize = if (compact) 12.5.sp else 14.sp, textAlign = TextAlign.Center)
+            val lcd = TextStyle(fontFamily = SkinFonts.aqua, fontSize = chromeSp(if (compact) 12.5f else 14f, LocalDensity.current), textAlign = TextAlign.Center)
             MarqueeText(
                 text = title,
                 style = lcd.copy(fontWeight = FontWeight.Bold),
@@ -1033,9 +1054,11 @@ class AquaSkin private constructor(private val graphite: Boolean) : Skin() {
         var drag by remember { mutableStateOf<Float?>(null) }
         val currentOnSeek by rememberUpdatedState(onSeek)
         val fraction = drag ?: (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
-        val small = TextStyle(fontFamily = SkinFonts.aqua, fontSize = 11.sp)
+        val small = TextStyle(fontFamily = SkinFonts.aqua, fontSize = chromeSp(11f, LocalDensity.current))
+        // A display squeezed small (the mini player, on a narrow phone) keeps the bar and drops the times.
+        BoxWithConstraints { val times = maxWidth >= 150.dp
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(formatDurationMs((fraction * durationMs).toLong()), style = small, color = AquaColors.lcdText, modifier = Modifier.width(40.dp))
+            if (times) Text(formatDurationMs((fraction * durationMs).toLong()), style = small, color = AquaColors.lcdText, modifier = Modifier.width(40.dp))
             var widthPx by remember { mutableFloatStateOf(1f) }
             Canvas(
                 Modifier
@@ -1077,12 +1100,13 @@ class AquaSkin private constructor(private val graphite: Boolean) : Skin() {
                 }
                 drawPath(diamond, AquaColors.lcdText)
             }
-            Text(
+            if (times) Text(
                 "-" + formatDurationMs(((1f - fraction) * durationMs).toLong()),
                 style = small.copy(textAlign = TextAlign.End),
                 color = AquaColors.lcdText,
                 modifier = Modifier.width(44.dp),
             )
+        }
         }
     }
 

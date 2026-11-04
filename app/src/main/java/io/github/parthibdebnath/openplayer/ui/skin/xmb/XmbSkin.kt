@@ -195,6 +195,13 @@ class XmbSkin private constructor(
         )
     }
 
+    /** The backdrop's own darkest shades, so the bands read as more of it. */
+    @Composable
+    override fun EdgeBand(top: Boolean, modifier: Modifier) {
+        val base = baseColour()
+        Box(modifier.background(shade(base, if (top) 0.24f else 0.5f)))
+    }
+
     /** The backdrop's colour now: the picked one, or this month's. */
     @Composable
     private fun baseColour(): Color {

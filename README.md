@@ -14,6 +14,7 @@ Features:
 - Play from multiple playlists at once
 - Background Playback
 - Custom Background colors
+- Themes modelled on classic interfaces: Mac OS X Aqua, Windows XP, Windows 95, Mac OS 9, the early iPod, Windows Phone 7, the PS3, the Xbox 360, the Wii and Nokia S60
 - Less than 25mb filesize!
 - Zero adds/paywalls
 

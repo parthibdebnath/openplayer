@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The preview build sits beside openplayer itself, so its launcher name says which it is. -->
+    <string name="app_name">openplayer preview</string>
+</resources>

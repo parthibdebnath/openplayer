@@ -201,6 +201,10 @@ private fun DrawScope.drawOs9Folder(rect: Rect) {
  */
 object PlatinumSkin : Skin() {
     override val theme = UiTheme.PLATINUM
+
+    /** The menu bar above; the desktop below. */
+    override val edgeTop = Color(0xFFDDDDDD)
+    override val edgeBottom = Color(0xFF6666AA)
     override val colors = AppColors(background = Pt.face, onBackground = Color.Black)
     override val showsHeader = false
     override val gutter: Dp = 10.dp

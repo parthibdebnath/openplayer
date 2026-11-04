@@ -105,3 +105,31 @@ fun SeekBar(
             },
     ) { draw(shown) }
 }
+
+/**
+ * How far type in a skin's fixed-size chrome - menu bars, taskbars, tabs, tiles - grows with the
+ * phone's font size. The chrome is drawn to its original's proportions and doesn't grow; past
+ * this the text would spill out of it. Content (lists, titles, settings) scales in full.
+ */
+private const val CHROME_MAX_FONT_SCALE = 1.15f
+
+/** [size] sp for chrome text, growing with the font size setting only up to [CHROME_MAX_FONT_SCALE]. */
+internal fun chromeSp(size: Float, density: androidx.compose.ui.unit.Density): androidx.compose.ui.unit.TextUnit =
+    androidx.compose.ui.unit.TextUnit(size * minOf(density.fontScale, CHROME_MAX_FONT_SCALE) / density.fontScale, androidx.compose.ui.unit.TextUnitType.Sp)
+
+/**
+ * [content] with its type growing with the font size setting only up to [CHROME_MAX_FONT_SCALE]:
+ * for a skin's fixed-size controls - its switchers and mini player - drawn as a whole.
+ */
+@androidx.compose.runtime.Composable
+fun ChromeType(content: @androidx.compose.runtime.Composable () -> Unit) {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    if (density.fontScale <= CHROME_MAX_FONT_SCALE) {
+        content()
+    } else {
+        androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density, CHROME_MAX_FONT_SCALE),
+            content = content,
+        )
+    }
+}
