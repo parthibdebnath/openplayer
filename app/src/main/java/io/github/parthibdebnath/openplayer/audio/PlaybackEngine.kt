@@ -31,6 +31,7 @@ import io.github.parthibdebnath.openplayer.data.settings.SavedPosition
 import io.github.parthibdebnath.openplayer.data.settings.SavedExternalSong
 import io.github.parthibdebnath.openplayer.data.settings.SavedQueue
 import io.github.parthibdebnath.openplayer.data.settings.SavedShuffle
+import io.github.parthibdebnath.openplayer.data.settings.SavedSlotSwap
 import io.github.parthibdebnath.openplayer.data.settings.SettingsDefaults
 import io.github.parthibdebnath.openplayer.data.settings.SettingsRepository
 import io.github.parthibdebnath.openplayer.data.settings.ShuffleProgressStore
@@ -60,6 +61,8 @@ data class PlaybackUiState(
     val repeatMode: RepeatMode = RepeatMode.OFF,
     val shuffleOn: Boolean = false,
     val upcoming: List<Song> = emptyList(),
+    /** For each row of [upcoming], the song a swipe on it brings back, or null. */
+    val swapBacks: List<Song?> = emptyList(),
     /** Why the current song couldn't be played, worded for the listener; null when all is well. */
     val error: String? = null,
     /** Why playback stopped when the listener didn't stop it themselves; null otherwise. */
@@ -1433,6 +1436,9 @@ class PlaybackEngine private constructor(context: Context) {
                 repeat = repeat,
                 order = if (saved.shuffled) PlayOrder.SHUFFLED else PlayOrder.SEQUENTIAL,
                 sourceKey = saved.sourceKey,
+                swaps = saved.slotSwaps.map {
+                    SlotSwap(it.incomingId, it.displacedId, it.incomingWasQueued, it.displacedAppended)
+                },
             )
             // If the song that was playing has since been deleted, carry on from whatever was due
             // next rather than restoring nothing at all.
@@ -1506,6 +1512,9 @@ class PlaybackEngine private constructor(context: Context) {
                     shuffled = queueManager.playOrder == PlayOrder.SHUFFLED,
                     sourceKey = queueManager.sourceKey,
                     externalSongs = savableExternalSongs(),
+                    slotSwaps = queueManager.slotSwapsSnapshot().map {
+                        SavedSlotSwap(it.incomingId, it.displacedId, it.incomingWasQueued, it.displacedAppended)
+                    },
                 )
                 runSuspendCatching { stateRepository.saveQueue(snapshot) }
                     .onSuccess { lastSavedQueueVersion = version }
@@ -1653,6 +1662,13 @@ class PlaybackEngine private constructor(context: Context) {
 
     fun replaceUpcomingSlot(visibleIndex: Int) {
         queueManager.replaceUpcomingSlot(visibleIndex)
+        syncUpcomingWindow()
+        syncState()
+    }
+
+    /** A swipe on a row of the upcoming list: see [PlaybackQueueManager.swapBack]. */
+    fun swapBackUpcomingSlot(visibleIndex: Int, expectedSongId: Long) {
+        if (!queueManager.swapBack(visibleIndex, expectedSongId)) return
         syncUpcomingWindow()
         syncState()
     }
@@ -1899,6 +1915,7 @@ class PlaybackEngine private constructor(context: Context) {
             repeatMode = queueManager.repeatMode,
             shuffleOn = shuffleOn,
             upcoming = queueManager.visibleUpcoming(),
+            swapBacks = queueManager.visibleSwapBacks(),
             error = lastError,
             notice = notice,
         )

@@ -978,6 +978,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun skipPrevious() = playbackEngine.skipToPrevious()
     fun seekTo(positionMs: Long) = playbackEngine.seekTo(positionMs)
     fun replaceUpcomingSlot(index: Int) = playbackEngine.replaceUpcomingSlot(index)
+    fun swapBackUpcomingSlot(index: Int, songId: Long) = playbackEngine.swapBackUpcomingSlot(index, songId)
     fun reorderUpcoming(from: Int, to: Int) = playbackEngine.reorderUpcoming(from, to)
 
     /** See [PlaybackEngine.switchShuffle]: turned on, it's a new order unless the seed is locked. */

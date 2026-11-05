@@ -48,6 +48,17 @@ data class SavedQueue(
     val sourceKey: String? = null,
     /** Songs opened from another app, which have no database row to resolve their ids against. */
     val externalSongs: List<SavedExternalSong> = emptyList(),
+    /** The swap arrow presses that a swipe on the row can still undo, oldest first. */
+    val slotSwaps: List<SavedSlotSwap> = emptyList(),
+)
+
+/** A [io.github.parthibdebnath.openplayer.audio.SlotSwap], as saved. */
+@Serializable
+data class SavedSlotSwap(
+    val incomingId: Long,
+    val displacedId: Long,
+    val incomingWasQueued: Boolean = false,
+    val displacedAppended: Boolean = true,
 )
 
 /** Everything needed to rebuild a song that was opened from another app. */

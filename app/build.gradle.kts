@@ -26,8 +26,8 @@ android {
         applicationId = "com.hyperperformant.openplayer"
         minSdk = 26
         targetSdk = 36
-        versionCode = 12
-        versionName = "0.1.0-beta.12"
+        versionCode = 13
+        versionName = "0.1.0-beta.13"
     }
 
     signingConfigs {

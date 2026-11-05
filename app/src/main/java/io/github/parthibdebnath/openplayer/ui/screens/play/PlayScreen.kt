@@ -228,6 +228,9 @@ fun PlayScreen(
                     onSwapSlot = { viewModel.replaceUpcomingSlot(it) },
                     onReorder = { from, to -> viewModel.reorderUpcoming(from, to) },
                     onHoldSong = viewModel::openTagEditor,
+                    swapBacks = playbackState.swapBacks,
+                    onSwapBack = { index, songId -> viewModel.swapBackUpcomingSlot(index, songId) },
+                    edgeReach = SCREEN_GUTTER,
                 )
             }
 
