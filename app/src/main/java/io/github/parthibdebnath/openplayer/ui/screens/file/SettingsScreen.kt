@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.parthibdebnath.openplayer.audio.stems.StemStatus
 import io.github.parthibdebnath.openplayer.data.settings.CROSSFADE_MAX_MS
 import io.github.parthibdebnath.openplayer.data.settings.CROSSFADE_MIN_MS
 import io.github.parthibdebnath.openplayer.data.settings.CROSSFADE_STEP_MS
@@ -97,6 +98,7 @@ fun SettingsScreen(
     val settings by viewModel.settingsSnapshot.collectAsStateWithLifecycle()
     val notificationsBlocked by viewModel.notificationsBlocked.collectAsStateWithLifecycle()
     val batteryRestricted by viewModel.batteryOptimized.collectAsStateWithLifecycle()
+    val stemStatus by viewModel.stemStatus.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
 
     // Locally-edited copy of the hex field. While it has focus the local text is the truth and the
@@ -301,6 +303,16 @@ fun SettingsScreen(
                     "beat are faded smoothly instead. Each song is analysed the first time it comes up."
             },
         )
+        if (settings.djMix && crossfadeShown > 0) {
+            Spacer(Modifier.height(20.dp))
+            ToggleRow(
+                label = "Mix with stems",
+                checked = settings.djMixStems && stemStatus.supported,
+                onToggle = { viewModel.setDjMixStems(it) },
+                bold = false,
+            )
+            SettingNote(stemNote(stemStatus, settings.djMixStems))
+        }
         Spacer(Modifier.height(34.dp))
 
         SectionHeading("Privacy")
@@ -576,6 +588,29 @@ fun SettingsScreen(
         Spacer(Modifier.height(24.dp))
     }
     }
+}
+
+/** What "Mix with stems" says about itself: what it does, and what it's up to. */
+private fun stemNote(status: StemStatus, enabled: Boolean): String {
+    if (!status.supported) {
+        return "Needs a phone with a 64-bit processor and at least 6 GB of memory. Mixes here use filters instead."
+    }
+    val what = "Each song's start and end are separated into drums, bass, vocals and the rest, on this phone, " +
+        "while the song before it plays. Mixes then bring in the next song's drums first, swap the basslines, " +
+        "and hand one singer over to the next so two voices never clash. About 80 MB of storage per song."
+    if (!enabled) return what
+    val doing = when {
+        status.pausedFor != null -> "Waiting: ${status.pausedFor}."
+        status.working != null -> "Separating \u201c${status.working}\u201d now."
+        else -> null
+    }
+    val ready = when (status.songsReady) {
+        0 -> null
+        1 -> "1 song ready."
+        else -> "${status.songsReady} songs ready."
+    }
+    val speed = if (status.lastSpeed > 0) "Last separation ran at %.1f\u00d7 real time.".format(status.lastSpeed) else null
+    return listOfNotNull(what, doing, ready, speed).joinToString(" ")
 }
 
 /** A line of explanation under a setting. */

@@ -412,6 +412,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             settingsRepository.djMix.collect { playbackEngine.djMix = it }
         }
         viewModelScope.launch {
+            settingsRepository.djMixStems.collect { playbackEngine.stemsEnabled = it }
+        }
+        viewModelScope.launch {
             settingsRepository.otherAppSound.collect { playbackEngine.otherAppSound = it }
         }
         viewModelScope.launch {
@@ -1016,6 +1019,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setTwentyFourHourClock(value: Boolean) = launchSafely { settingsRepository.setTwentyFourHourClock(value) }
     fun setCrossfadeMs(value: Int) = launchSafely { settingsRepository.setCrossfadeMs(value) }
     fun setDjMix(value: Boolean) = launchSafely { settingsRepository.setDjMix(value) }
+
+    fun setDjMixStems(value: Boolean) = launchSafely { settingsRepository.setDjMixStems(value) }
+
+    /** What the DJ mix's stem separation is doing, for Settings. */
+    val stemStatus = playbackEngine.stems.status
 
     /** The crossfade heard while its slider is dragged, saved with [setCrossfadeMs] on release. */
     fun previewCrossfadeMs(value: Int) {

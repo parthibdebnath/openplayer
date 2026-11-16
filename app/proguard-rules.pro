@@ -25,3 +25,7 @@
     public static int d(...);
     public static int i(...);
 }
+
+# ONNX Runtime (the DJ mix's stem separation) is reached from its native library through JNI, by
+# class and member names R8 can't see being used.
+-keep class ai.onnxruntime.** { *; }

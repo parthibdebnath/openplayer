@@ -22,6 +22,13 @@ import io.github.parthibdebnath.openplayer.audio.mix.MixPlan
 import io.github.parthibdebnath.openplayer.audio.mix.MixPlanner
 import io.github.parthibdebnath.openplayer.audio.mix.MixStyle
 import io.github.parthibdebnath.openplayer.audio.mix.TempoAudioProcessor
+import io.github.parthibdebnath.openplayer.audio.mix.StemGains
+import io.github.parthibdebnath.openplayer.audio.mix.StemView
+import io.github.parthibdebnath.openplayer.audio.analysis.TrackAnalysis
+import io.github.parthibdebnath.openplayer.audio.stems.StemMixAudioProcessor
+import io.github.parthibdebnath.openplayer.audio.stems.StemRegion
+import io.github.parthibdebnath.openplayer.audio.stems.StemRepository
+import io.github.parthibdebnath.openplayer.audio.stems.StemTrack
 import io.github.parthibdebnath.openplayer.data.model.Song
 import io.github.parthibdebnath.openplayer.data.repository.TrackAnalysisRepository
 import io.github.parthibdebnath.openplayer.data.settings.EffectsState
@@ -84,9 +91,12 @@ private class PlayerSlot(context: Context, audioAttributes: AudioAttributes) {
     /** The DJ mix's tempo for this deck. */
     val tempo = TempoAudioProcessor()
 
+    /** The DJ mix's stem levels for this deck. */
+    val stemMix = StemMixAudioProcessor()
+
     val player: ExoPlayer = ExoPlayer.Builder(
         context,
-        CustomRenderersFactory(context, normalization, reverb, threeD, mixChannel, tempo),
+        CustomRenderersFactory(context, normalization, reverb, threeD, mixChannel, tempo, stemMix),
         audioMediaSourceFactory(context),
     )
         // Focus is handled centrally by AudioFocusController instead of per-player - see there.
@@ -106,13 +116,21 @@ private class PlayerSlot(context: Context, audioAttributes: AudioAttributes) {
     var glideTotalMs: Double = 0.0
     var glideElapsedMs: Double = 0.0
 
-    /** Back to plain playback: normal tempo, full level, no filter. */
+    // The level trim easing back to 1 after a DJ mix brought a louder song in quieter: from
+    // trimFrom, over trimTotalMs of playing time. Not easing while trimTotalMs is 0.
+    var trimFrom: Double = 1.0
+    var trimTotalMs: Double = 0.0
+    var trimElapsedMs: Double = 0.0
+
+    /** Back to plain playback: normal tempo, full level, no filter, every stem in. */
     fun resetMix() {
         tempo.rate = 1f
         tempo.holdAtStart(0L)
         glideTotalMs = 0.0
+        trimTotalMs = 0.0
         mixChannel.gain = 1f
         mixChannel.cutoffHz = MixChannelAudioProcessor.FLOOR_HZ
+        stemMix.resetLevels()
     }
 }
 
@@ -617,6 +635,27 @@ class PlaybackEngine private constructor(context: Context) {
         }
     }
 
+    /**
+     * The songs' stems, separated in the background as they come up (see [StemRepository]), so
+     * mixes can be played stem by stem.
+     */
+    val stems = StemRepository(appContext, engineScope).also { repository ->
+        repository.onReady = { songId -> onStemsReady(songId) }
+    }
+
+    /** The "Separate stems" setting. */
+    var stemsEnabled: Boolean = true
+        set(value) {
+            if (field == value) return
+            field = value
+            stems.enabled = value
+            if (!value && djRun == null) {
+                mixPlan = null
+                mixPlanSongs = null
+            }
+            attachStems()
+        }
+
     /** Beat-matched DJ transitions in place of plain crossfades; the length is still [crossfadeMs]. */
     var djMix: Boolean = false
         set(value) {
@@ -639,7 +678,10 @@ class PlaybackEngine private constructor(context: Context) {
     /** A DJ mix under way: the incoming song is the active slot, the outgoing one the standby. */
     private var djRun: DjRun? = null
 
-    private class DjRun(val plan: MixPlan, val incomingTitle: String) {
+    private class DjRun(val plan: MixPlan, val incomingTitle: String, val trimDb: Double) {
+        /** Whether the stems can still be used: false once a deck wasn't lined up with them in time. */
+        var stemsUsable = plan.withStems
+
         /** When the incoming song's clock was first seen moving; 0 until then. */
         var incomingMovingSinceMs = 0L
         var lastShiftMs = 0L
@@ -657,6 +699,7 @@ class PlaybackEngine private constructor(context: Context) {
         val elapsed = if (lastTransitionTickMs == 0L) 0L else (now - lastTransitionTickMs).coerceIn(0L, MAX_TICK_GAP_MS)
         lastTransitionTickMs = now
         advanceGlides(elapsed)
+        attachStems()
         if (djRun != null) {
             advanceDjMix(now)
             return
@@ -683,7 +726,9 @@ class PlaybackEngine private constructor(context: Context) {
         if (queueManager.repeatMode == RepeatMode.ONE || sleepTimerManager.isStopAfterCurrentSongPending()) return null
         // A long track that picks up part-way starts where it was left, not on a bar line.
         if (!preloadable(next)) return null
-        analyses.prefetch(listOfNotNull(current, next, queueManager.visibleUpcoming(2).getOrNull(1)))
+        val following = queueManager.visibleUpcoming(2).getOrNull(1)
+        analyses.prefetch(listOfNotNull(current, next, following))
+        requestStems(current, next, following)
 
         val songs = current.id to next.id
         val position = player.currentPosition.toDouble()
@@ -700,6 +745,8 @@ class PlaybackEngine private constructor(context: Context) {
             incoming = analyses.analysisFor(next),
             maxBlendMs = crossfadeMs,
             speed = player.playbackParameters.speed.toDouble(),
+            outStems = stemView(current),
+            inStems = stemView(next),
         )
         mixPlan = plan
         mixPlanSongs = songs
@@ -734,8 +781,13 @@ class PlaybackEngine private constructor(context: Context) {
         try {
             val incoming = standby
             val outgoing = active
-            val levels = plan.levels(-1.0)
+            val levels = plan.levelsWithoutStems(-1.0)
             incoming.resetMix()
+            // The incoming song's stems go on before it starts, held silent: they only take
+            // effect once lined up with its audio, by which time the deck is still silent too.
+            incoming.stemMix.tracks = if (plan.withStems) stems.tracksFor(next) else emptyList()
+            incoming.stemMix.attachedSongId = next.id
+            if (plan.withStems) incoming.stemMix.setLevels(StemGains.SILENT)
             incoming.mixChannel.gain = levels.inGain.toFloat()
             incoming.mixChannel.cutoffHz = levels.inCutoffHz.toFloat()
             incoming.tempo.rate = plan.inMeetRate.toFloat()
@@ -756,18 +808,20 @@ class PlaybackEngine private constructor(context: Context) {
 
             // From here it's as a crossfade: the incoming song is what's playing, as far as the
             // rest of the app is concerned. See startCrossfade.
+            val outgoingSong = loadedSong
             rememberPosition(loadedSong, 0L, force = true)
             queueManager.advanceToNext(currentShuffleSeed)
             loadedSong = next
             activeIndex = 1 - activeIndex
             retriesForCurrentItem = 0
             fadeProgress = 0f
-            djRun = DjRun(plan, next.displayName)
+            val trim = loudnessTrimDb(plan, outgoingSong?.let { analyses.analysisFor(it) }, analyses.analysisFor(next))
+            djRun = DjRun(plan, next.displayName, trim)
             mixPlan = null
             mixPlanSongs = null
             _activePlayer.value = incoming.player
             syncState()
-            Log.i("PlaybackEngine", "DJ mix into ${next.displayName}: ${plan.style}, ${plan.beats} beats")
+            Log.i("PlaybackEngine", "DJ mix into ${next.displayName}: ${plan.style}, ${plan.beats} beats, stems ${plan.withStems}")
         } catch (t: Throwable) {
             rebuildingWindow = false
             Log.e("PlaybackEngine", "Could not start the DJ mix", t)
@@ -790,11 +844,37 @@ class PlaybackEngine private constructor(context: Context) {
             finishDjMix()
             return
         }
-        val levels = plan.levels(progress)
-        outgoing.mixChannel.gain = levels.outGain.toFloat()
+        val aligned = outgoing.stemMix.alignedRegion != null && incoming.stemMix.alignedRegion != null
+        if (run.stemsUsable && progress >= STEM_ALIGN_GRACE && !aligned) {
+            // A deck that hasn't lined up with its stems by now won't be heard right with them.
+            run.stemsUsable = false
+            Log.w("PlaybackEngine", "DJ mix into ${run.incomingTitle}: stems not lined up (out ${outgoing.stemMix.alignedRegion}, in ${incoming.stemMix.alignedRegion}); mixing without")
+        }
+        val stemMode = run.stemsUsable && progress >= 0
+        // The first moments of a blend, where the incoming song is all but silent anyway, are
+        // allowed for lining it up (a smooth mix has no silent lead-in): it's held at nothing
+        // until then.
+        val waitingToAlign = stemMode && !aligned
+        val levels = if (stemMode) plan.levels(progress) else plan.levelsWithoutStems(progress)
+        // Loudness matched across the blend: a louder incoming song comes in trimmed (and eases
+        // back afterwards, too slowly to hear); a quieter one has the outgoing song brought down
+        // to meet it as it goes.
+        val p = progress.coerceIn(0.0, 1.0)
+        val inTrim = if (run.trimDb < 0) dbToGain(run.trimDb) else 1.0
+        val outTrim = if (run.trimDb > 0) dbToGain(-run.trimDb * smoothstepLocal((p / 0.5).coerceIn(0.0, 1.0))) else 1.0
+        outgoing.mixChannel.gain = (levels.outGain * outTrim).toFloat()
         outgoing.mixChannel.cutoffHz = levels.outCutoffHz.toFloat()
-        incoming.mixChannel.gain = levels.inGain.toFloat()
+        incoming.mixChannel.gain = if (waitingToAlign) 0f else (levels.inGain * inTrim).toFloat()
         incoming.mixChannel.cutoffHz = levels.inCutoffHz.toFloat()
+        outgoing.stemMix.setLevels(if (stemMode) levels.outStems else StemGains.FULL)
+        incoming.stemMix.setLevels(
+            when {
+                waitingToAlign -> StemGains.SILENT
+                stemMode -> levels.inStems
+                run.stemsUsable -> StemGains.SILENT
+                else -> StemGains.FULL
+            },
+        )
         fadeProgress = progress.coerceIn(0.0, 1.0).toFloat()
         if (plan.style == MixStyle.BEATMATCH) {
             outgoing.tempo.rate = plan.outgoingRate(outPosition).toFloat()
@@ -874,8 +954,9 @@ class PlaybackEngine private constructor(context: Context) {
         djRun = null
         fadeProgress = null
         stopStandby()
-        active.mixChannel.gain = 1f
         active.mixChannel.cutoffHz = MixChannelAudioProcessor.FLOOR_HZ
+        active.stemMix.resetLevels()
+        releaseTrim(active, run.trimDb)
         releaseTempo(active, run.plan.inBeatMs)
         syncState()
     }
@@ -886,8 +967,9 @@ class PlaybackEngine private constructor(context: Context) {
         djRun = null
         fadeProgress = null
         stopStandby()
-        active.mixChannel.gain = 1f
         active.mixChannel.cutoffHz = MixChannelAudioProcessor.FLOOR_HZ
+        active.stemMix.resetLevels()
+        releaseTrim(active, run.trimDb)
         releaseTempo(active, run.plan.inBeatMs)
         applyVolumes()
     }
@@ -898,8 +980,114 @@ class PlaybackEngine private constructor(context: Context) {
             standby.player.clearMediaItems()
         }
         standby.resetMix()
+        standby.stemMix.tracks = emptyList()
+        standby.stemMix.attachedSongId = null
         slots.forEach { it.fadeGain = 1f }
         applyVolumes()
+    }
+
+    /** Starts [slot]'s level easing back to full after a mix that brought it in [trimDb] quieter. */
+    private fun releaseTrim(slot: PlayerSlot, trimDb: Double) {
+        if (trimDb >= -0.05) {
+            slot.mixChannel.gain = 1f
+            slot.trimTotalMs = 0.0
+            return
+        }
+        slot.trimFrom = dbToGain(trimDb)
+        slot.mixChannel.gain = slot.trimFrom.toFloat()
+        slot.trimElapsedMs = 0.0
+        slot.trimTotalMs = TRIM_RELEASE_MS_PER_DB * -trimDb
+    }
+
+    /**
+     * How much quieter (negative) the incoming song should come in, or how much (positive) the
+     * outgoing one should be brought down by, to meet each other's loudness - only with "Even out
+     * volume" off, which matches them already. Capped, since the analysis's loudness is an
+     * estimate.
+     */
+    private fun loudnessTrimDb(plan: MixPlan, out: TrackAnalysis?, incoming: TrackAnalysis?): Double {
+        if (normalizeVolume || out == null || incoming == null) return 0.0
+        if (!out.loudnessDb.isFinite() || !incoming.loudnessDb.isFinite()) return 0.0
+        val difference = out.loudnessDb - incoming.loudnessDb
+        // Within a dB or two nobody hears a step.
+        if (kotlin.math.abs(difference) < LOUDNESS_DEADBAND_DB) return 0.0
+        val trim = (difference - kotlin.math.sign(difference) * LOUDNESS_DEADBAND_DB).coerceIn(-MAX_TRIM_DB, MAX_TRIM_DB)
+        Log.i("PlaybackEngine", "Mix loudness: out %.1f dB, in %.1f dB, trim %.1f dB (${plan.style})".format(out.loudnessDb, incoming.loudnessDb, trim))
+        return trim
+    }
+
+    private fun dbToGain(db: Double): Double = Math.pow(10.0, db / 20.0)
+
+    private fun smoothstepLocal(t: Double): Double = t * t * (3 - 2 * t)
+
+    // --- Stems -------------------------------------------------------------------------------
+
+    /** Asks for the stems the next mixes need, most urgent first. */
+    private fun requestStems(current: Song, next: Song, following: Song?) {
+        if (!stemsEnabled || !stems.supported) return
+        val requests = ArrayList<StemRepository.Request>()
+        analyses.analysisFor(current)?.let { analysis ->
+            // The end of the song playing - unless there isn't time left to separate it.
+            val remaining = analysis.durationMs - player.currentPosition
+            if (remaining > STEMS_WORTH_STARTING_MS) {
+                requests += stems.requestsFor(current, analysis).filter { it.region != StemRegion.HEAD }
+            }
+        }
+        val nextAnalysis = analyses.analysisFor(next)
+        if (nextAnalysis != null) {
+            val nextRequests = stems.requestsFor(next, nextAnalysis)
+            requests += nextRequests.filter { it.region != StemRegion.TAIL }
+            requests += nextRequests.filter { it.region == StemRegion.TAIL }
+        }
+        following?.let { song ->
+            analyses.analysisFor(song)?.let { analysis ->
+                requests += stems.requestsFor(song, analysis).filter { it.region != StemRegion.TAIL }
+            }
+        }
+        stems.want(requests)
+    }
+
+    /** The mix planner's view of [song]'s stems, if any are ready. */
+    private fun stemView(song: Song): StemView? {
+        if (!stemsEnabled) return null
+        val tracks = stems.tracksFor(song)
+        if (tracks.isEmpty()) return null
+        return object : StemView {
+            override fun covers(fromMs: Double, toMs: Double): Boolean =
+                tracks.any { it.covers(fromMs, toMs) }
+
+            override fun vocalsDb(fromMs: Double, toMs: Double): Double? {
+                val track = tracks.firstOrNull { it.covers(fromMs, toMs) } ?: return null
+                val vocals = track.levelDb(StemTrack.Stem.VOCALS, fromMs, toMs) ?: return null
+                val mix = track.levelDb(StemTrack.Stem.MIX, fromMs, toMs) ?: return null
+                return if (vocals < SILENT_STEM_DB) -100.0 else vocals - mix
+            }
+        }
+    }
+
+    /** Keeps the active deck's stem tracks those of the song it's playing (while DJ mixing). */
+    private fun attachStems() {
+        val song = loadedSong
+        val tracks = if (djMix && crossfadeMs > 0 && stemsEnabled && song != null) stems.tracksFor(song) else emptyList()
+        val slot = active
+        if (slot.stemMix.tracks != tracks) {
+            slot.stemMix.tracks = tracks
+            slot.stemMix.attachedSongId = song?.id
+            // Read in ahead of use, off the main thread, so the audio thread never waits on storage.
+            if (tracks.isNotEmpty()) engineScope.launch(Dispatchers.IO) { tracks.forEach { it.preload() } }
+        }
+    }
+
+    private fun onStemsReady(songId: Long) {
+        attachStems()
+        val pair = mixPlanSongs ?: return
+        if (djRun != null || (songId != pair.first && songId != pair.second)) return
+        val plan = mixPlan
+        val position = player.currentPosition.toDouble()
+        // Planned again with the stems - as long as the tempo ramp hasn't started.
+        if (plan == null || (!plan.withStems && position < plan.outRampStartMs - REPLAN_MARGIN_MS)) {
+            mixPlanSongs = null
+        }
     }
 
     /** Starts [slot]'s tempo easing back to normal, if it isn't there already. */
@@ -915,9 +1103,19 @@ class PlaybackEngine private constructor(context: Context) {
         slot.glideTotalMs = MixPlanner.glideMs(rate, beatMs, slot.player.playbackParameters.speed.toDouble())
     }
 
-    /** Moves each easing tempo on by [elapsedMs], counting only time spent playing. */
+    /** Moves each easing tempo and level trim on by [elapsedMs], counting only time spent playing. */
     private fun advanceGlides(elapsedMs: Long) {
         for (slot in slots) {
+            if (slot.trimTotalMs > 0.0 && djRun == null) {
+                if (slot.player.isPlaying) slot.trimElapsedMs += elapsedMs
+                val t = (slot.trimElapsedMs / slot.trimTotalMs).coerceIn(0.0, 1.0)
+                val eased = t * t * (3 - 2 * t)
+                slot.mixChannel.gain = (slot.trimFrom + (1.0 - slot.trimFrom) * eased).toFloat()
+                if (t >= 1.0) {
+                    slot.mixChannel.gain = 1f
+                    slot.trimTotalMs = 0.0
+                }
+            }
             if (slot.glideTotalMs <= 0.0) continue
             if (slot.player.isPlaying) slot.glideElapsedMs += elapsedMs
             val t = (slot.glideElapsedMs / slot.glideTotalMs).coerceIn(0.0, 1.0)
@@ -1950,6 +2148,24 @@ class PlaybackEngine private constructor(context: Context) {
 
         /** Roughly how long a player takes from play() to its first sound; see [mixStartLeadMs]. */
         private const val MIX_START_LATENCY_MS = 120.0
+
+        /** A song with less than this left isn't worth starting to separate the end of. */
+        private const val STEMS_WORTH_STARTING_MS = 150_000L
+
+        /** A mix is only re-planned (with newly separated stems) this far ahead of its tempo ramp. */
+        private const val REPLAN_MARGIN_MS = 3_000.0
+
+        /** How far into a blend (as progress) the stems may still be lining up. */
+        private const val STEM_ALIGN_GRACE = 0.04
+
+        /** A stem below this is silent, whatever the song around it. */
+        private const val SILENT_STEM_DB = -60.0
+
+        private const val LOUDNESS_DEADBAND_DB = 1.5
+        private const val MAX_TRIM_DB = 6.0
+
+        /** A trimmed song eases back to full over this long a dB: 6 dB over 36 s. */
+        private const val TRIM_RELEASE_MS_PER_DB = 6_000.0
 
         // The beat lock; see lockBeats.
         private const val CLOCK_SETTLE_MS = 300L

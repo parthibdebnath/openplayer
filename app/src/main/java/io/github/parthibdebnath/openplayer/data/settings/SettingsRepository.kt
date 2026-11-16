@@ -55,6 +55,9 @@ object SettingsDefaults {
 
     /** Off: songs crossfade plainly. On: beat-matched DJ transitions, within the crossfade length. */
     const val DJ_MIX = false
+
+    /** With the DJ mix: songs separated into stems on the phone, and mixed stem by stem. */
+    const val DJ_MIX_STEMS = true
     const val BACKGROUND_PLAYBACK = true
     const val BACKGROUND_COLOR_HEX = "#000000"
     const val DAILY_RANDOM_BACKGROUND = false
@@ -109,6 +112,7 @@ data class SettingsSnapshot(
     val preserveShuffleProgress: Boolean = SettingsDefaults.PRESERVE_SHUFFLE_PROGRESS,
     val crossfadeMs: Int = SettingsDefaults.CROSSFADE_MS,
     val djMix: Boolean = SettingsDefaults.DJ_MIX,
+    val djMixStems: Boolean = SettingsDefaults.DJ_MIX_STEMS,
     val backgroundPlayback: Boolean = SettingsDefaults.BACKGROUND_PLAYBACK,
     val backgroundColorHex: String = SettingsDefaults.BACKGROUND_COLOR_HEX,
     val dailyRandomBackground: Boolean = SettingsDefaults.DAILY_RANDOM_BACKGROUND,
@@ -157,6 +161,7 @@ class SettingsRepository(private val context: Context) {
         val PRESERVE_SHUFFLE_PROGRESS = bool("preserve_shuffle_progress")
         val CROSSFADE_MS = int("crossfade_ms")
         val DJ_MIX = bool("dj_mix")
+        val DJ_MIX_STEMS = bool("dj_mix_stems")
         val BACKGROUND_PLAYBACK = bool("background_playback")
         val BACKGROUND_COLOR_HEX = text("background_color_hex")
         val DAILY_RANDOM_BACKGROUND = bool("daily_random_background")
@@ -203,6 +208,7 @@ class SettingsRepository(private val context: Context) {
             preserveShuffleProgress = p[Keys.PRESERVE_SHUFFLE_PROGRESS] ?: SettingsDefaults.PRESERVE_SHUFFLE_PROGRESS,
             crossfadeMs = crossfadeOf(p),
             djMix = p[Keys.DJ_MIX] ?: SettingsDefaults.DJ_MIX,
+            djMixStems = p[Keys.DJ_MIX_STEMS] ?: SettingsDefaults.DJ_MIX_STEMS,
             backgroundPlayback = p[Keys.BACKGROUND_PLAYBACK] ?: SettingsDefaults.BACKGROUND_PLAYBACK,
             backgroundColorHex = p[Keys.BACKGROUND_COLOR_HEX] ?: SettingsDefaults.BACKGROUND_COLOR_HEX,
             dailyRandomBackground = p[Keys.DAILY_RANDOM_BACKGROUND] ?: SettingsDefaults.DAILY_RANDOM_BACKGROUND,
@@ -234,6 +240,7 @@ class SettingsRepository(private val context: Context) {
         setting { it[Keys.RESTART_SONG_ON_OPEN] ?: SettingsDefaults.RESTART_SONG_ON_OPEN }
     val crossfadeMs: Flow<Int> = setting(::crossfadeOf)
     val djMix: Flow<Boolean> = setting { it[Keys.DJ_MIX] ?: SettingsDefaults.DJ_MIX }
+    val djMixStems: Flow<Boolean> = setting { it[Keys.DJ_MIX_STEMS] ?: SettingsDefaults.DJ_MIX_STEMS }
     val songSort: Flow<SongSort> = setting { SongSort.fromName(it[Keys.SONG_SORT]) }
     val otherAppSound: Flow<OtherAppSound> = setting { OtherAppSound.fromName(it[Keys.OTHER_APP_SOUND]) }
     val skipSilence: Flow<Boolean> = setting { it[Keys.SKIP_SILENCE] ?: SettingsDefaults.SKIP_SILENCE }
@@ -350,6 +357,8 @@ class SettingsRepository(private val context: Context) {
     }
 
     suspend fun setDjMix(value: Boolean) = set(Keys.DJ_MIX, value)
+
+    suspend fun setDjMixStems(value: Boolean) = set(Keys.DJ_MIX_STEMS, value)
 
     suspend fun setCrossfadeMs(value: Int) {
         val snapped = (Math.round(value / CROSSFADE_STEP_MS.toFloat()) * CROSSFADE_STEP_MS)

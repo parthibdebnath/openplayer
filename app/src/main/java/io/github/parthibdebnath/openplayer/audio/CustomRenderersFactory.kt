@@ -15,6 +15,7 @@ import androidx.media3.exoplayer.audio.DefaultAudioSink
 import io.github.parthibdebnath.openplayer.audio.mix.MixChannelAudioProcessor
 import io.github.parthibdebnath.openplayer.audio.mix.MixingAudioProcessorChain
 import io.github.parthibdebnath.openplayer.audio.mix.TempoAudioProcessor
+import io.github.parthibdebnath.openplayer.audio.stems.StemMixAudioProcessor
 import androidx.media3.exoplayer.audio.SilenceSkippingAudioProcessor
 import androidx.media3.common.audio.SonicAudioProcessor
 import androidx.media3.exoplayer.metadata.MetadataOutput
@@ -37,7 +38,8 @@ import androidx.media3.extractor.ts.AdtsExtractor
 import androidx.media3.extractor.wav.WavExtractor
 
 /**
- * Builds an audio-only player: one audio renderer, with [NormalizationAudioProcessor], the DJ
+ * Builds an audio-only player: one audio renderer, with the DJ mix's [StemMixAudioProcessor]
+ * first (it has to see the decoder's own samples), then [NormalizationAudioProcessor], the DJ
  * mix's [MixChannelAudioProcessor] and [TempoAudioProcessor], then [ReverbAudioProcessor] and
  * [ThreeDAudioProcessor], ahead of ExoPlayer's own silence skipping and speed/pitch processor.
  * Loudness is evened out first, so everything after it sees the same level from every song.
@@ -54,6 +56,7 @@ class CustomRenderersFactory(
     val threeDAudioProcessor: ThreeDAudioProcessor,
     val mixChannelAudioProcessor: MixChannelAudioProcessor,
     val tempoAudioProcessor: TempoAudioProcessor,
+    val stemMixAudioProcessor: StemMixAudioProcessor,
 ) : RenderersFactory {
 
     override fun createRenderers(
@@ -67,6 +70,7 @@ class CustomRenderersFactory(
         // after them treat both songs of a mix alike.
         val standard = DefaultAudioSink.DefaultAudioProcessorChain(
             arrayOf<AudioProcessor>(
+                stemMixAudioProcessor,
                 normalizationAudioProcessor,
                 mixChannelAudioProcessor,
                 tempoAudioProcessor,
@@ -80,7 +84,7 @@ class CustomRenderersFactory(
             .setAudioProcessorChain(MixingAudioProcessorChain(tempoAudioProcessor, standard))
             .build()
         return arrayOf(
-            NormalizingAudioRenderer(context, eventHandler, audioRendererEventListener, sink, normalizationAudioProcessor),
+            NormalizingAudioRenderer(context, eventHandler, audioRendererEventListener, sink, normalizationAudioProcessor, stemMixAudioProcessor),
         )
     }
 }

@@ -18,11 +18,13 @@ import androidx.media3.extractor.metadata.id3.InternalFrame
 import androidx.media3.extractor.metadata.id3.TextInformationFrame
 import androidx.media3.extractor.metadata.vorbis.VorbisComment
 import androidx.media3.extractor.mp3.Mp3InfoReplayGain
+import io.github.parthibdebnath.openplayer.audio.stems.StemMixAudioProcessor
 import java.nio.ByteBuffer
 
 /**
  * The audio renderer, plus handing each song's ReplayGain to [normalizer] as its audio comes out
- * of the decoder.
+ * of the decoder, and each buffer's media time to [stemMix], which finds its place in a song's
+ * stems from it.
  *
  * [processOutputBuffer] is given the format of the buffer it's outputting, which the codec
  * renderer lines up with each song's first output sample, and it runs on the playback thread just
@@ -35,6 +37,7 @@ class NormalizingAudioRenderer(
     eventListener: AudioRendererEventListener,
     audioSink: AudioSink,
     private val normalizer: NormalizationAudioProcessor,
+    private val stemMix: StemMixAudioProcessor,
 ) : MediaCodecAudioRenderer(
     context,
     MediaCodecSelector.DEFAULT,
@@ -65,6 +68,8 @@ class NormalizingAudioRenderer(
             lastFormat = format
             normalizer.trackGainDb = replayGainDb(format.metadata)
         }
+        // Buffer times are the renderer's, offset from the song's own media time.
+        if (!isDecodeOnlyBuffer) stemMix.noteBufferTime(bufferPresentationTimeUs - outputStreamOffsetUs)
         return super.processOutputBuffer(
             positionUs, elapsedRealtimeUs, codec, buffer, bufferIndex, bufferFlags, sampleCount,
             bufferPresentationTimeUs, isDecodeOnlyBuffer, isLastBuffer, format,

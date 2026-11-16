@@ -23,3 +23,6 @@ keystore.properties
 # Working notes, not part of the app
 /UI screenshots/
 /main prompt.md
+
+# The DJ mix stem model (91 MB): built by scripts/stem-model/export.py
+app/src/main/assets/stems/

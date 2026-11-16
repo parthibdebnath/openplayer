@@ -26,8 +26,8 @@ android {
         applicationId = "com.hyperperformant.openplayer"
         minSdk = 26
         targetSdk = 36
-        versionCode = 13
-        versionName = "0.1.0-beta.13"
+        versionCode = 14
+        versionName = "0.1.0-beta.14"
     }
 
     signingConfigs {
@@ -73,6 +73,9 @@ android {
     // which ended up in resources.arsc. Only the system's own dialogs would ever show them.
     androidResources {
         localeFilters += listOf("en")
+        // The stem separation model is memory-mapped straight out of the APK, which needs it stored
+        // uncompressed (its weights barely compress anyway).
+        noCompress += "onnx"
     }
 
     // Play reads the dependency list from the bundle (it's encrypted with Play's key, for its SDK
@@ -83,6 +86,13 @@ android {
     }
 
     packaging {
+        jniLibs {
+            // ONNX Runtime's native library is 25-40 MB per ABI uncompressed; compressed in the APK
+            // (and unpacked at install) the universal APK stays a sensible download.
+            useLegacyPackaging = true
+            // No 32-bit x86 phone exists to run it on; that build is for old emulators only.
+            excludes += "/lib/x86/**"
+        }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             // Kotlin reflection metadata and coroutine debug-agent data. Nothing in the app uses
@@ -125,6 +135,9 @@ dependencies {
 
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
+
+    // Runs the DJ mix's stem separation model (Demucs v4) on the phone's CPU.
+    implementation(libs.onnxruntime.android)
 
     testImplementation(libs.junit)
 }

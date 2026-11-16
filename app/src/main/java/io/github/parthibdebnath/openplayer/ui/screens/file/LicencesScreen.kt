@@ -28,6 +28,9 @@ import kotlinx.coroutines.withContext
 
 private const val APACHE_2 = "Apache License 2.0"
 private const val OFL = "SIL Open Font License 1.1"
+private const val MIT_ONNX_RUNTIME = "MIT License (ONNX Runtime)"
+private const val MIT_DEMUCS = "MIT License (Demucs)"
+private const val MIT_DEMUCS_ONNX = "MIT License (demucs.onnx)"
 
 private class Component(val name: String, val copyright: String, val licence: String)
 
@@ -46,12 +49,22 @@ private val COMPONENTS = listOf(
         APACHE_2,
     ),
     Component("Liquid glass rendering, adapted from AndroidLiquidGlass", "Copyright 2025 Kyant", APACHE_2),
+    Component("ONNX Runtime", "Copyright (c) Microsoft Corporation", MIT_ONNX_RUNTIME),
+    Component(
+        "Demucs v4 (Hybrid Transformer Demucs) stem separation model and spectrogram code",
+        "Copyright (c) Meta, Inc. and its affiliates",
+        MIT_DEMUCS,
+    ),
+    Component("Demucs ONNX export approach, after demucs.onnx", "Copyright (c) 2024 Sevag H", MIT_DEMUCS_ONNX),
 )
 
 /** Licence texts shipped in assets/licenses, keyed by the names above. */
 private val LICENCE_FILES = linkedMapOf(
     APACHE_2 to "licenses/Apache-2.0.txt",
     OFL to "licenses/Inter-OFL.txt",
+    MIT_ONNX_RUNTIME to "licenses/MIT-ONNX-Runtime.txt",
+    MIT_DEMUCS to "licenses/MIT-Demucs.txt",
+    MIT_DEMUCS_ONNX to "licenses/MIT-demucs.onnx.txt",
 )
 
 /** Credits for the open-source software openplayer is built with, with the full licence texts. */
