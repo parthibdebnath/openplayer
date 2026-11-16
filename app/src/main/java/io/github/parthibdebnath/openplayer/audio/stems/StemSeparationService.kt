@@ -38,6 +38,9 @@ class StemSeparationService : Service() {
     private var core: OnnxDemucsCore? = null
     private var separator: StemSeparator? = null
 
+    /** Which mode [core] was loaded for: performance mode or not. */
+    private var coreFast = false
+
     override fun onCreate() {
         super.onCreate()
         workerThread = HandlerThread("stem-separation", Process.THREAD_PRIORITY_BACKGROUND).also { it.start() }
@@ -71,9 +74,31 @@ class StemSeparationService : Service() {
     private fun separate(key: String, data: Bundle, replyTo: Messenger) {
         current.set(key)
         if (cancelled == key) cancelled = null
+        val fast = data.getBoolean(KEY_FAST)
+        // Performance mode runs at normal priority, so the scheduler gives it the fast cores;
+        // otherwise background. Playback's own audio threads are far above either.
+        Process.setThreadPriority(if (fast) Process.THREAD_PRIORITY_DEFAULT else Process.THREAD_PRIORITY_BACKGROUND)
         val outcome = try {
+            if (core != null && coreFast != fast) {
+                // The model's threads take their priority and count from when it's loaded.
+                runCatching { core?.close() }
+                core = null
+                separator = null
+            }
+            if (fast && !xnnpackDecided()) {
+                xnnpackIsFaster()
+                // Timing loads the model twice over, and native memory freed isn't handed back to
+                // the system: a fresh process does the separating. The app asks again at once.
+                current.set(null)
+                reply(replyTo, MSG_RESULT, key, RESULT_RESTART, 0)
+                Process.killProcess(Process.myPid())
+                return
+            }
             val separator = separator ?: run {
-                val c = core ?: StemJob.loadCore(this).also { core = it }
+                val c = core ?: StemJob.loadCore(this, fast, useXnnpack = fast && xnnpackIsFaster()).also {
+                    core = it
+                    coreFast = fast
+                }
                 StemSeparator(c).also { separator = it }
             }
             val file = File(data.getString(KEY_PATH)!!)
@@ -104,6 +129,43 @@ class StemSeparationService : Service() {
 
     private class Outcome(val code: Int, val speed: Double)
 
+    /**
+     * Whether XNNPACK runs the model faster than ONNX Runtime's own kernels on this phone, in
+     * performance mode. Phones differ, so it's timed - one segment each, after a warm-up run -
+     * the first time it's needed, and remembered for this version of the app.
+     */
+    private fun xnnpackKey(): String =
+        "xnnpack_" + runCatching { packageManager.getPackageInfo(packageName, 0).longVersionCodeCompat() }.getOrDefault(0L)
+
+    private fun xnnpackDecided(): Boolean = getSharedPreferences(PREFS, MODE_PRIVATE).contains(xnnpackKey())
+
+    private fun xnnpackIsFaster(): Boolean {
+        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+        val versionKey = xnnpackKey()
+        if (prefs.contains(versionKey)) return prefs.getBoolean(versionKey, false)
+        fun time(xnnpack: Boolean): Long? = runCatching {
+            val c = StemJob.loadCore(this, fast = true, useXnnpack = xnnpack)
+            try {
+                val separator = StemSeparator(c)
+                separator.timeSegment()
+                separator.timeSegment()
+            } finally {
+                c.close()
+            }
+        }.onFailure { Log.w(TAG, "Couldn't time the model with XNNPACK $xnnpack", it) }.getOrNull()
+        val plain = time(false)
+        val xnnpack = time(true)
+        val faster = plain != null && xnnpack != null && xnnpack < plain * 0.95
+        Log.i(TAG, "One segment: $plain ms with the default kernels, $xnnpack ms with XNNPACK; using XNNPACK $faster")
+        // Written through before the process ends.
+        prefs.edit().putBoolean(versionKey, faster).commit()
+        return faster
+    }
+
+    @Suppress("DEPRECATION")
+    private fun android.content.pm.PackageInfo.longVersionCodeCompat(): Long =
+        if (android.os.Build.VERSION.SDK_INT >= 28) longVersionCode else versionCode.toLong()
+
     private fun reply(to: Messenger, what: Int, key: String, arg1: Int, arg2: Int, speed: Double = 0.0) {
         val message = Message.obtain(null, what, arg1, arg2)
         message.data = Bundle().apply {
@@ -130,6 +192,9 @@ class StemSeparationService : Service() {
         const val RESULT_FAILED = 1
         const val RESULT_CANCELLED = 2
 
+        /** The process is restarting itself (after timing the kernels); ask again. */
+        const val RESULT_RESTART = 3
+
         const val KEY_KEY = "key"
         const val KEY_URI = "uri"
         const val KEY_REGION = "region"
@@ -137,5 +202,7 @@ class StemSeparationService : Service() {
         const val KEY_TO = "to"
         const val KEY_PATH = "path"
         const val KEY_SPEED = "speed"
+        const val KEY_FAST = "fast"
+        private const val PREFS = "stem_separation"
     }
 }

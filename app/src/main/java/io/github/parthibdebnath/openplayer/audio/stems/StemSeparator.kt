@@ -61,6 +61,22 @@ internal class StemSeparator(private val core: DemucsCore) {
     /** Drums, bass and vocals, each interleaved stereo 16-bit at 44.1 kHz, [length] frames. */
     class Result(val length: Int, val drums: ShortBuffer, val bass: ShortBuffer, val vocals: ShortBuffer)
 
+    /** Runs the network on one segment of made-up audio; how long it took, in ms. */
+    fun timeSegment(): Long {
+        for (i in 0 until Demucs.SEGMENT) {
+            segLeft[i] = (kotlin.math.sin(i * 0.031) * 0.5 + kotlin.math.sin(i * 0.0071) * 0.3).toFloat()
+            segRight[i] = (kotlin.math.sin(i * 0.027) * 0.5 + kotlin.math.cos(i * 0.0053) * 0.3).toFloat()
+        }
+        mixBuffer.clear()
+        mixBuffer.put(segLeft)
+        mixBuffer.put(segRight)
+        mixBuffer.clear()
+        spectrogram.forward(segLeft, segRight, specBuffer)
+        val started = System.nanoTime()
+        core.run(mixBuffer, specBuffer, freqOut, timeOut)
+        return (System.nanoTime() - started) / 1_000_000
+    }
+
     /** Segments [length] samples take. */
     fun segmentCount(length: Int): Int = (length + Demucs.STRIDE - 1) / Demucs.STRIDE
 

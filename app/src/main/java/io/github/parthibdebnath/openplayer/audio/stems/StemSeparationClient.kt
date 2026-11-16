@@ -28,6 +28,9 @@ internal class StemSeparationClient(context: Context) {
         data object Failed : Outcome
         data object Cancelled : Outcome
 
+        /** The separation process is restarting itself on purpose: ask again. */
+        data object Restart : Outcome
+
         /** The separation process went away mid-job - most likely taken back for its memory. */
         data object Killed : Outcome
     }
@@ -90,6 +93,7 @@ internal class StemSeparationClient(context: Context) {
         fromMs: Double,
         toMs: Double,
         path: String,
+        fast: Boolean,
         onProgress: (done: Int, total: Int) -> Unit,
     ): Outcome {
         val messenger = connect() ?: return Outcome.Killed
@@ -104,6 +108,7 @@ internal class StemSeparationClient(context: Context) {
                 putDouble(StemSeparationService.KEY_FROM, fromMs)
                 putDouble(StemSeparationService.KEY_TO, toMs)
                 putString(StemSeparationService.KEY_PATH, path)
+                putBoolean(StemSeparationService.KEY_FAST, fast)
             }
             if (runCatching { messenger.send(message) }.isFailure) finish(Outcome.Killed)
             continuation.invokeOnCancellation { cancel(key) }
@@ -135,6 +140,7 @@ internal class StemSeparationClient(context: Context) {
                 when (message.arg1) {
                     StemSeparationService.RESULT_DONE -> Outcome.Done(message.data.getDouble(StemSeparationService.KEY_SPEED))
                     StemSeparationService.RESULT_CANCELLED -> Outcome.Cancelled
+                    StemSeparationService.RESULT_RESTART -> Outcome.Restart
                     else -> Outcome.Failed
                 },
             )

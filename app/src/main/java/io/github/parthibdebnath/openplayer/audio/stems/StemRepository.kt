@@ -60,6 +60,12 @@ class StemRepository(context: Context, private val scope: CoroutineScope) {
             if (!value) wanted = emptyList()
         }
 
+    /**
+     * Performance mode ("Faster separation"): every fast core at normal priority, the quickest
+     * kernels for this phone, and only stopping for heat at the critical level.
+     */
+    @Volatile var fast: Boolean = false
+
     var onReady: ((songId: Long) -> Unit)? = null
 
     private val _status = MutableStateFlow(StemStatus(supported = false))
@@ -177,7 +183,7 @@ class StemRepository(context: Context, private val scope: CoroutineScope) {
                 }
             }
             try {
-                client.separate(request.key, song.documentUri, request.region, request.fromMs, request.toMs, file.path) { done, total ->
+                client.separate(request.key, song.documentUri, request.region, request.fromMs, request.toMs, file.path, fast) { done, total ->
                     Log.d(TAG, "${song.displayName} ${request.region}: segment $done of $total")
                 }
             } finally {
@@ -205,6 +211,11 @@ class StemRepository(context: Context, private val scope: CoroutineScope) {
                 delay(KILLED_BACKOFF_MS)
             }
             StemSeparationClient.Outcome.Cancelled -> Unit
+            StemSeparationClient.Outcome.Restart -> {
+                // A fresh process, once this one has gone: unbind, and the next round binds anew.
+                client.release()
+                delay(RESTART_DELAY_MS)
+            }
         }
         withContext(Dispatchers.IO) { File(file.path + ".part").delete() }
         return null
@@ -213,7 +224,9 @@ class StemRepository(context: Context, private val scope: CoroutineScope) {
     private fun pauseReason(): String? {
         val power = appContext.getSystemService(PowerManager::class.java) ?: return null
         if (power.isPowerSaveMode) return "battery saver"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && power.currentThermalStatus >= PowerManager.THERMAL_STATUS_SEVERE) {
+        // Performance mode carries on until the phone is about to throttle itself.
+        val tooHot = if (fast) PowerManager.THERMAL_STATUS_CRITICAL else PowerManager.THERMAL_STATUS_SEVERE
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && power.currentThermalStatus >= tooHot) {
             return "phone too warm"
         }
         return null
@@ -267,5 +280,6 @@ class StemRepository(context: Context, private val scope: CoroutineScope) {
         const val CANCEL_CHECK_MS = 2_000L
         const val MAX_KILLS = 2
         const val KILLED_BACKOFF_MS = 20_000L
+        const val RESTART_DELAY_MS = 1_000L
     }
 }

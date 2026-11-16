@@ -415,6 +415,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             settingsRepository.djMixStems.collect { playbackEngine.stemsEnabled = it }
         }
         viewModelScope.launch {
+            settingsRepository.djMixStemsFast.collect { playbackEngine.stems.fast = it }
+        }
+        viewModelScope.launch {
             settingsRepository.otherAppSound.collect { playbackEngine.otherAppSound = it }
         }
         viewModelScope.launch {
@@ -1021,6 +1024,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setDjMix(value: Boolean) = launchSafely { settingsRepository.setDjMix(value) }
 
     fun setDjMixStems(value: Boolean) = launchSafely { settingsRepository.setDjMixStems(value) }
+
+    fun setDjMixStemsFast(value: Boolean) = launchSafely { settingsRepository.setDjMixStemsFast(value) }
 
     /** What the DJ mix's stem separation is doing, for Settings. */
     val stemStatus = playbackEngine.stems.status

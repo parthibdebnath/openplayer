@@ -14,9 +14,12 @@ import java.nio.FloatBuffer
  * The session's worker threads are started by the thread that creates it, and inherit that
  * thread's (background) priority, so playback and the UI always come first.
  *
- * [model] is the ONNX file, in a direct buffer (mapped straight from the APK).
+ * [model] is the ONNX file, in a direct buffer (mapped straight from the APK). With [xnnpack], the
+ * convolutions and matrix products go to XNNPACK, ONNX Runtime's ARM-tuned kernels - still fp32,
+ * so the same separation - which is faster on some phones and slower on others (see
+ * [StemJob.loadCore]).
  */
-internal class OnnxDemucsCore(model: ByteBuffer, threads: Int) : DemucsCore {
+internal class OnnxDemucsCore(model: ByteBuffer, threads: Int, val xnnpack: Boolean = false) : DemucsCore {
     private val env = OrtEnvironment.getEnvironment()
     private val session: OrtSession
     private val mixName: String
@@ -26,7 +29,10 @@ internal class OnnxDemucsCore(model: ByteBuffer, threads: Int) : DemucsCore {
 
     init {
         val options = OrtSession.SessionOptions().apply {
-            setIntraOpNumThreads(threads)
+            // XNNPACK brings its own thread pool; the session's is then kept to one, as ONNX
+            // Runtime advises, or the two pools fight over the cores.
+            setIntraOpNumThreads(if (xnnpack) 1 else threads)
+            if (xnnpack) addXnnpack(mapOf("intra_op_num_threads" to threads.toString()))
             setInterOpNumThreads(1)
             setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL)
             setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)

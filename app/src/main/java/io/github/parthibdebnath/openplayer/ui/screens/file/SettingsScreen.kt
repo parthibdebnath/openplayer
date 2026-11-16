@@ -312,6 +312,20 @@ fun SettingsScreen(
                 bold = false,
             )
             SettingNote(stemNote(stemStatus, settings.djMixStems))
+            if (settings.djMixStems && stemStatus.supported) {
+                Spacer(Modifier.height(20.dp))
+                ToggleRow(
+                    label = "Faster separation",
+                    checked = settings.djMixStemsFast,
+                    onToggle = { viewModel.setDjMixStemsFast(it) },
+                    bold = false,
+                )
+                SettingNote(
+                    "Separates using every fast core at full priority, with the quickest method for this phone " +
+                        "(timed once, the first time). Stems are ready sooner, after skips too, but it uses more " +
+                        "battery and the phone gets warmer while it works. Music always comes first either way.",
+                )
+            }
         }
         Spacer(Modifier.height(34.dp))
 

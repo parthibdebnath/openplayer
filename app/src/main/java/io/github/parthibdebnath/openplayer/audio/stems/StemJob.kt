@@ -68,19 +68,41 @@ internal object StemJob {
         return audioSeconds / seconds
     }
 
-    /** The network, mapped straight out of the APK. */
-    fun loadCore(context: Context): OnnxDemucsCore {
+    /**
+     * The network, mapped straight out of the APK, for [fast] (performance mode) or not.
+     *
+     * Normally four threads. Performance mode uses one per fast core - the big and middle cores,
+     * not the efficiency cores, whose slowness would hold every layer back (work is split evenly)
+     * - and XNNPACK if [useXnnpack] says it's the faster here.
+     */
+    fun loadCore(context: Context, fast: Boolean, useXnnpack: Boolean = false): OnnxDemucsCore {
         val started = SystemClock.elapsedRealtime()
+        val threads = if (fast) fastCoreCount() else min(MAX_THREADS, max(1, Runtime.getRuntime().availableProcessors() / 2))
         context.assets.openFd(MODEL_ASSET).use { fd: AssetFileDescriptor ->
             FileInputStream(fd.fileDescriptor).channel.use { channel ->
                 val buffer = channel.map(FileChannel.MapMode.READ_ONLY, fd.startOffset, fd.declaredLength)
-                val threads = min(MAX_THREADS, max(1, Runtime.getRuntime().availableProcessors() / 2))
-                return OnnxDemucsCore(buffer, threads).also {
-                    Log.i(TAG, "Loaded the separation model in ${SystemClock.elapsedRealtime() - started} ms, $threads threads")
+                return OnnxDemucsCore(buffer, threads, xnnpack = fast && useXnnpack).also {
+                    Log.i(TAG, "Loaded the separation model in ${SystemClock.elapsedRealtime() - started} ms: $threads threads, fast $fast, XNNPACK ${it.xnnpack}")
                 }
             }
         }
     }
+
+    /**
+     * Cores within 75% of the fastest one's top clock: on a phone, its big and middle cores. Half
+     * the cores if the clocks can't be read.
+     */
+    private fun fastCoreCount(): Int {
+        val cores = Runtime.getRuntime().availableProcessors()
+        val clocks = (0 until cores).mapNotNull { cpu ->
+            runCatching { File("/sys/devices/system/cpu/cpu$cpu/cpufreq/cpuinfo_max_freq").readText().trim().toLong() }.getOrNull()
+        }
+        val top = clocks.maxOrNull()
+        val fast = if (top == null || clocks.size < cores) cores / 2 else clocks.count { it >= top * 0.75 }
+        return fast.coerceIn(1, MAX_FAST_THREADS)
+    }
+
+    private const val MAX_FAST_THREADS = 8
 }
 
 /** The average of two channels. */
